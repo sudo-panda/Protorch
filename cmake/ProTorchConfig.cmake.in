@@ -1,0 +1,5 @@
+@PACKAGE_INIT@
+
+set(ProTorch_FOUND TRUE)
+set(ProTorch_INCLUDE_DIRS "@CMAKE_CURRENT_SOURCE_DIR@/include")
+set(ProTorch_LIBRARIES "@CMAKE_CURRENT_BINARY_DIR@/libprotorch.so")
