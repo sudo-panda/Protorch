@@ -1,7 +1,11 @@
-cmake_minimum_required(VERSION 3.0 FATAL_ERROR)
+cmake_minimum_required(VERSION 3.11 FATAL_ERROR)
 project(ProTorch)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
+include(FetchContent)
+FetchContent_Declare(json URL https://github.com/nlohmann/json/releases/download/v3.11.3/json.tar.xz)
+FetchContent_MakeAvailable(json)
 
 add_library(protorch SHARED src/protorch.cpp)
 target_include_directories(protorch PUBLIC include)
@@ -15,7 +19,7 @@ target_include_directories(protorch
 llvm_config(protorch USE_SHARED)
 
 find_package(Torch REQUIRED)
-target_link_libraries(protorch PRIVATE "${TORCH_LIBRARIES}")
+target_link_libraries(protorch PRIVATE "${TORCH_LIBRARIES}" nlohmann_json::nlohmann_json)
 target_compile_options(protorch PUBLIC "-frtti")
 
 set_property(TARGET protorch PROPERTY CXX_STANDARD 17)
@@ -27,6 +31,13 @@ configure_package_config_file(
     INSTALL_DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/ProTorch"
 )
 
+if(CMAKE_PROJECT_NAME STREQUAL PROJECT_NAME)
+    include(CTest)
+endif()
+
+if(CMAKE_PROJECT_NAME STREQUAL PROJECT_NAME AND BUILD_TESTING)
+    add_subdirectory(tests)
+endif()
 # # Install the config file
 # install(
 #     FILES "${CMAKE_CURRENT_BINARY_DIR}/ProTorchConfig.cmake"
