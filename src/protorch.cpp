@@ -17,7 +17,6 @@
 
 #include "protorch.hpp"
 
-#include "config.h"
 
 constexpr int EMBED_SIZE = 64;
 
@@ -57,14 +56,10 @@ std::vector<std::vector<double>> ProTorch::getEmbeds(const std::string &BCFile, 
   std::cout << command << std::endl;
 
   std::system(command.c_str());
-  if (fp == NULL) {
-    std::cerr << "Failed to open pipe." << std::endl;
-    exit(1);
-  }
 
   std::filesystem::path filePath = BCFile;
-  filePath.replace_extension(".json");
-
+  filePath.replace_extension(".json"); 
+  
   std::ifstream inputFile(filePath);
   std::cout << std::filesystem::absolute(filePath) << std::endl;
   if (!inputFile.is_open()) {
@@ -86,8 +81,6 @@ std::vector<std::vector<double>> ProTorch::getEmbeds(const std::string &BCFile, 
 
     Embeds.push_back(Embed);
   }
-  pclose(fp);
-
 
   return Embeds;
 }
