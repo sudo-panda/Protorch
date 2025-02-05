@@ -16,7 +16,7 @@
 #include <vector>
 
 #include "protorch.hpp"
-
+#include "config.h"
 
 constexpr int EMBED_SIZE = 64;
 
@@ -48,7 +48,7 @@ llvm::SmallVector<int, 3> ProTorch::getInstrCounts(const llvm::Function &func) {
 }
 
 std::vector<std::vector<double>> ProTorch::getEmbeds(const std::string &BCFile, const std::vector<std::string> &FnNames) {
-  std::string command = "python __PROJECT_DIR__/python/get_func_embed.py -i " + BCFile + " -f " + FnNames[0];
+  std::string command = "python " __PROJECT_DIR__ "python/get_func_embed.py -i " + BCFile + " -f " + FnNames[0];
   for (auto it = FnNames.begin() + 1; it != FnNames.end(); it++) {
     command += "," + *it;
   }
@@ -85,9 +85,10 @@ std::vector<std::vector<double>> ProTorch::getEmbeds(const std::string &BCFile, 
   return Embeds;
 }
 
-void ProTorch::callTorch() {
+void ProTorch::callTorch(std::vector<double> &Embed) {
   torch::jit::script::Module module;
   try {
+    torch::Tensor tensor = torch::from_blob(Embed.data(), {Embed.size()}, torch::kDouble);
     torch::Tensor inp = torch::rand({20});
     module = torch::jit::load(m_model_path);
     torch::Tensor out = module.forward({inp}).toTensor();
@@ -101,17 +102,15 @@ void ProTorch::callTorch() {
 void ProTorch::processOptInfo(const llvm::SmallVector<int, 3> &OptInfo) {
   std::cout << "Received OptInfo : " << OptInfo[0] << ", " << OptInfo[1] << ", "
             << OptInfo[2] << std::endl;
-
-  callTorch();
 }
 
 
-void ProTorch::processEmbed(const std::vector<double> &Embed) {
+void ProTorch::processEmbed(std::vector<double> &Embed) {
   std::cout << "Received Embed : ";
   for (double Ele : Embed)
        std::cout << Ele << ", ";
 
   std::cout << std::endl;
 
-  callTorch();
+  callTorch(Embed);
 }

@@ -18,9 +18,9 @@ public:
 
   void processOptInfo(const llvm::SmallVector<int, 3> &OptInfo);
 
-  void processEmbed(const std::vector<double> &Embed);
+  void processEmbed(std::vector<double> &Embed);
 
-  void callTorch();
+  void callTorch(std::vector<double> &Embed);
 };
 
 #endif // PROTORCH_PROTORCH_HPP
