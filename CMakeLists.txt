@@ -7,8 +7,11 @@ include(FetchContent)
 FetchContent_Declare(json URL https://github.com/nlohmann/json/releases/download/v3.11.3/json.tar.xz)
 FetchContent_MakeAvailable(json)
 
+set(PROTORCH_DIR "${PROJECT_SOURCE_DIR}/")
+configure_file(include/config.h.in include/config.h @ONLY)
+
 add_library(protorch SHARED src/protorch.cpp)
-target_include_directories(protorch PUBLIC include)
+target_include_directories(protorch PUBLIC include "${CMAKE_CURRENT_BINARY_DIR}/include")
 
 include(cmake/SetupLLVM.cmake)
 

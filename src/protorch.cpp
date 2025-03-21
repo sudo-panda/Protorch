@@ -48,7 +48,7 @@ llvm::SmallVector<int, 3> ProTorch::getInstrCounts(const llvm::Function &func) {
 }
 
 std::vector<std::vector<double>> ProTorch::getEmbeds(const std::string &BCFile, const std::vector<std::string> &FnNames) {
-  std::string command = "python " __PROJECT_DIR__ "python/get_func_embed.py -i " + BCFile + " -f " + FnNames[0];
+  std::string command = "python " PROTORCH_DIR "python/get_func_embed.py -i " + BCFile + " -f " + FnNames[0];
   for (auto it = FnNames.begin() + 1; it != FnNames.end(); it++) {
     command += "," + *it;
   }
@@ -88,7 +88,7 @@ std::vector<std::vector<double>> ProTorch::getEmbeds(const std::string &BCFile, 
 void ProTorch::callTorch(std::vector<double> &Embed) {
   torch::jit::script::Module module;
   try {
-    torch::Tensor tensor = torch::from_blob(Embed.data(), {Embed.size()}, torch::kDouble);
+    torch::Tensor tensor = torch::from_blob(Embed.data(), {static_cast<long>(Embed.size())}, torch::kDouble);
     torch::Tensor inp = torch::rand({20});
     module = torch::jit::load(m_model_path);
     torch::Tensor out = module.forward({inp}).toTensor();
