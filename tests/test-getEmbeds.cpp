@@ -1,11 +1,11 @@
 #include <vector>
-
+#include "config.h"
 #include "protorch.hpp"
 
 int main() {
   ProTorch PT;
   std::vector<std::vector<double>> Embeds =
-    PT.getEmbeds("/usr/WS2/kundu1/RT_Tuner/mltraining/c_src/fib.ll", {"Fib", "a"});
+    PT.getEmbeds(PROTORCH_DIR "tests/data/fib.ll", {"Fib", "a"});
 
   ProTorch PT_rt(/* runtime = */ true);
   PT_rt.processEmbed(Embeds[0]);
