@@ -9,12 +9,13 @@ file_list = list(Path("/mnt/E/Workspaces/LLNL/HecBench/heterodatas/").glob("*.pt
 
 dataset = FunctionGraphDataset(file_list)
 
+model = GraMIModel(dataset[0][1], 16, 8)
+model.train()
+
+optimizer = torch.optim.AdamW(model.parameters(), lr=0.01)
+
 def single_step(data):
     adj_mat = get_adj_mat_from_edge_index(data.x_dict, data.edge_index_dict)
-    model = GraMIModel(data, 16, 8)
-    model.train()
-
-    optimizer = torch.optim.AdamW(model.parameters(), lr=0.01)
 
     optimizer.zero_grad()
 
