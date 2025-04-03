@@ -1,10 +1,6 @@
 import re
-import numpy as np
 import torch
 import torch.nn as nn
-import random
-import matplotlib.pyplot as plt
-from tqdm import tqdm
 import pathlib
 
 script_path = pathlib.Path(__file__).parent.resolve()
@@ -61,112 +57,37 @@ def get_digit_emb_of_number(token):
         digits, digits_pos = get_digit_and_pos(token)
         for digit in digits:
             if digit in feature_map:
-                print("digit", digit)
                 lookup_tensor = torch.tensor([feature_map[digit]], dtype=torch.long)
-                print(lookup_tensor)
                 node_embed = embeds(lookup_tensor)
-                node_embed_real_numpy = node_embed.detach().numpy()
-                print(node_embed_real_numpy.shape)
-                node_embed_list = []
-                for value in node_embed_real_numpy:
-                    node_embed_list = value.tolist()
-                print(node_embed, node_embed_list)
-                digit_embedding_vector.append(node_embed_list)
+                digit_embedding_vector.append(node_embed)
             else:
-                digit_embedding_vector.append([0.0, 0.0, 0.0])
+                digit_embedding_vector.append(torch.Tensor([0.0, 0.0, 0.0]))
+
+        digit_embedding_vector = torch.cat(digit_embedding_vector)
+
         for digit_pos in digits_pos:
             if digit_pos in feature_map:
-                print(digit_pos)
                 lookup_tensor = torch.tensor([feature_map[digit_pos]], dtype=torch.long)
-                print(lookup_tensor)
                 node_embed = embeds(lookup_tensor)
-                node_embed_real_numpy = node_embed.detach().numpy()
-                node_embed_list = []
-                print(node_embed_real_numpy.shape)
-                for value in node_embed_real_numpy:
-                    node_embed_list = value.tolist()
-                # new added
-                node_embed_list_mult = [ii * 10 for ii in node_embed_list]
                 node_embed_mult = node_embed * 10
-                print(node_embed_mult, node_embed_list_mult)
-                # add ends
-                # this was actual
-                # digit_pos_vector.append(node_embed_list)
-                digit_pos_vector.append(node_embed_list_mult)
+                digit_pos_vector.append(node_embed_mult)
             else:
-                digit_pos_vector.append([0.0, 0.0, 0.0])
+                digit_pos_vector.append(torch.Tensor([0.0, 0.0, 0.0]))
 
-        final_embedding_vector = []
+        digit_pos_vector = torch.cat(digit_pos_vector)
 
-
-        #newly added
-        # ve = digit_pos_vector
-        # for ar in digit_pos_vector:
-        #     for i in range(len(ar)):
-        #         b = ar[i]
-        #         ar[i]*= 100
-        # ve2 = digit_pos_vector
-        #add ends
-
-        # mult instead of add
-        final_embedding_list_of_np_arrays = list(
-            (np.array(digit_embedding_vector) * np.array(digit_pos_vector)))
-
-        for embeddin in final_embedding_list_of_np_arrays:
-            final_embedding_vector.append(list(embeddin))
-
-        final_embedding_vector_np_array = np.array(final_embedding_vector)
-        final_embedding_vector_np_array_sum = np.sum(final_embedding_vector_np_array, axis=0)
-        reduced_final_embedding = list(final_embedding_vector_np_array_sum)
-
-        max_of_reduced_final_embedding = max(reduced_final_embedding, key=abs)
-
-        for i3 in range(len(reduced_final_embedding)):
-            reduced_final_embedding[i3] = reduced_final_embedding[i3] / (abs(max_of_reduced_final_embedding) + 1)
+        final_embedding = digit_embedding_vector * digit_pos_vector
+        final_embedding_sum = torch.sum(final_embedding, axis=0)
+        reduced_final_embedding = final_embedding_sum / (torch.max(torch.abs(final_embedding_sum)) + 1)
     else:
-        reduced_final_embedding = [0.0, 0.0, 0.0]
+        reduced_final_embedding = torch.Tensor([0.0, 0.0, 0.0])
+
     return reduced_final_embedding
 
 
 def main():
-    # arr_num = [10, 12, 1000, 1020, 1000000, 10000020]
-    arr_num = []
-
-    # for i in range(20):
-    #     arr_num.append(random.uniform(1.10, 10.50))
-
-    for i in range(50):
-        arr_num.append(random.randint(1, 51))
-
-    # for i in range(20):
-    #     arr_num.append(random.uniform(20.02, 30.90))
-
-
-    for i in range(50):
-        arr_num.append(random.randint(200050, 200101))
-
-    # emb_file = open('emb-plot.csv', 'w')
-    emb_file = open('emb-plot-dec-proper-1-100-200051-502001-updated.csv', 'w')
-
-    arr_num_emb = {}
-
-    # for num in tqdm(arr_num):
-    #     num_emb = get_digit_emb_of_number(str(num))
-    #     # if num_emb[0] < 0:
-    #     #     num_emb[0] *= -1
-    #     # if num_emb[1] < 0:
-    #     #     num_emb[1] *= -1
-    #     arr_num_emb[num] = num_emb
-
-    assert torch.allclose(torch.cdist(get_digit_emb_of_number("1"), get_digit_emb_of_number("2")), torch.cdist(get_digit_emb_of_number("2"), get_digit_emb_of_number("3")))
-
-    # count = 0
-    # for emb in tqdm(arr_num_emb):
-    #     if count == 0:
-    #         emb_file.write('Number,x,y\n')
-    #         count += 1
-    #     write_string = str(emb[2]) + ',' + str(emb[0]) + ',' + str(emb[1]) + '\n'
-    #     emb_file.write(write_string)
+    print(torch.cdist(get_digit_emb_of_number("1").unsqueeze(0), get_digit_emb_of_number("3").unsqueeze(0)))
+    print(torch.cdist(get_digit_emb_of_number("2").unsqueeze(0), get_digit_emb_of_number("4").unsqueeze(0)))
 
 if __name__ == "__main__":
     main()
