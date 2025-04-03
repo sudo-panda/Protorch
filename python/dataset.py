@@ -14,7 +14,7 @@ class FunctionGraphDataset(Dataset):
         
         del data['module', 'symbol', 'value']
         del data['module']
-        return data
+        return self.file_list[idx], data
 
 
 
