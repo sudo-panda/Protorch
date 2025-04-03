@@ -8,25 +8,24 @@ from GraMI.model import GraMIModel
 file_list = list(Path("/mnt/E/Workspaces/LLNL/HecBench/heterodatas/").glob("*.pt"))
 
 dataset = FunctionGraphDataset(file_list)
-data = dataset[1]
 
+def single_step(data):
+    adj_mat = get_adj_mat_from_edge_index(data.x_dict, data.edge_index_dict)
+    model = GraMIModel(data, 16, 8)
+    model.train()
 
-adj_mat = get_adj_mat_from_edge_index(data.x_dict, data.edge_index_dict)
-model = GraMIModel(data, 16, 8)
-model.train()
+    optimizer = torch.optim.AdamW(model.parameters(), lr=0.01)
 
-optimizer = torch.optim.AdamW(model.parameters(), lr=0.01)
+    optimizer.zero_grad()
 
-optimizer.zero_grad()
+    X_hat, V, A, X_hat_prime, edge_logits, X_prime = model(data.x_dict, data.edge_index_dict)
 
-X_hat, V, A, X_hat_prime, edge_logits, X_prime = model(data.x_dict, data.edge_index_dict)
+    assert torch.Tensor([X_hat[k].shape == X_hat_prime[k].shape for k in X_hat_prime.keys()]).all() == True
+    assert torch.Tensor([data.x_dict[k].shape == X_prime[k].shape for k in X_prime.keys()]).all() == True
+    assert torch.Tensor([adj_mat[k].shape == edge_logits[k].shape for k in data.edge_index_dict.keys()]).all() == True
 
-assert torch.Tensor([X_hat[k].shape == X_hat_prime[k].shape for k in X_hat_prime.keys()]).all() == True
-assert torch.Tensor([data.x_dict[k].shape == X_prime[k].shape for k in X_prime.keys()]).all() == True
-assert torch.Tensor([adj_mat[k].shape == edge_logits[k].shape for k in data.edge_index_dict.keys()]).all() == True
+    loss = GraMI_loss(data.x_dict, X_hat, adj_mat, V, A, edge_logits, X_hat_prime, X_prime)
 
-loss = GraMI_loss(data.x_dict, X_hat, adj_mat, V, A, edge_logits, X_hat_prime, X_prime)
-
-print(loss)
-loss.backward()
-optimizer.step()
+    print(loss)
+    loss.backward()
+    optimizer.step()

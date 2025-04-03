@@ -1,5 +1,5 @@
 import torch
-from torch.nn import ModuleDict, Module, Linear, Tanh, Dropout, Sequential
+from torch.nn import ModuleDict, Module, Linear, Tanh, BatchNorm1d, Sequential
 import torch.nn.functional as F
 from torch_geometric.nn import SAGEConv, HeteroConv, Linear, GATv2Conv, InnerProductDecoder
 from torch_geometric.nn.pool import global_mean_pool
@@ -13,8 +13,8 @@ class MLP(Module):
             input_dim = in_dim if i == 0 else hidden_dim
             output_dim = out_dim if i == num_layers - 1 else hidden_dim
             layers.append(Linear(input_dim, output_dim))
-            if i < num_layers - 1:
-                layers.append(Tanh())
+            layers.append(Tanh())
+            layers.append(BatchNorm1d(output_dim))
         self.mlp = Sequential(*layers)
 
     def forward(self, x):
@@ -42,7 +42,7 @@ class GraMIInitializer(Module):
         super(GraMIInitializer, self).__init__()
 
         self.MLP1 = ModuleDict({
-            node_type: MLP(data.size(1), data.size(1) // 2, out_dim)
+            node_type: MLP(data.size(1), (data.size(1) + 1) // 2, out_dim)
             for node_type, data in data.x_dict.items()
         })
     
@@ -83,7 +83,7 @@ class GraMIDecoder(Module):
         self.hgnn = HGNN(data, hidden_dim // 2, hidden_dim, num_layers=1)
 
         self.MLP1 = ModuleDict({
-            node_type: MLP(hidden_dim, data.size(1) // 2, data.size(1), num_layers=2)
+            node_type: MLP(hidden_dim, (data.size(1) + 1) // 2, data.size(1), num_layers=2)
             for node_type, data in data.x_dict.items()
         })
     
