@@ -13,7 +13,7 @@ def loss_fn(X, X_hat, adj_mat, V, A, edge_logits, X_hat_prime, X_prime, lambda0=
         loss_edge_kl += - 0.5 * torch.sum(1 + log_var - mean.pow(2) - log_var.exp())
     loss_edge_kl /= len(V.keys())
 
-    loss_edge = loss_edge_mse + 0.002 * loss_edge_kl
+    loss_edge = loss_edge_mse + loss_edge_kl
     # print(loss_edge, loss_edge_mse, 0.002 * loss_edge_kl)
 
     loss_attr_mse = 0
@@ -33,7 +33,7 @@ def loss_fn(X, X_hat, adj_mat, V, A, edge_logits, X_hat_prime, X_prime, lambda0=
     mean, log_var = A
     loss_attr_kl += - 0.5 * torch.sum(1 + log_var - mean.pow(2) - log_var.exp())
 
-    loss_attr = loss_attr_mse + 0.002 * loss_attr_kl
+    loss_attr = loss_attr_mse + loss_attr_kl
     # print(loss_attr, loss_attr_mse, 0.002 * loss_attr_kl)
 
     loss_rmse = 0
@@ -52,13 +52,15 @@ def loss_fn(X, X_hat, adj_mat, V, A, edge_logits, X_hat_prime, X_prime, lambda0=
 
 def acc_fn(X, adj_mat, edge_logits, X_prime):
     with torch.no_grad():
-        loss_edge_mse = 0
+        acc_edge_mse = 1
         for k in adj_mat.keys():
-            loss_edge_mse -= F.binary_cross_entropy_with_logits(edge_logits[k], adj_mat[k], reduction='sum')
+            acc_edge_mse += torch.exp(-F.binary_cross_entropy_with_logits(edge_logits[k], adj_mat[k], reduction='sum'))
+        acc_edge_mse /= len(adj_mat.keys())
         
-        loss_rmse = 0
+        acc_rmse = 0
         for k in X.keys():
-            loss_rmse += F.mse_loss(X_prime[k], X[k], reduction='sum')
+            acc_rmse += torch.exp(-F.mse_loss(X_prime[k], X[k], reduction='sum'))
+        acc_rmse /= len(X.keys())
         
-        loss = loss_edge_mse + loss_rmse
-        return torch.exp(-loss)
+        acc = (acc_edge_mse + acc_rmse) / 2
+        return acc
