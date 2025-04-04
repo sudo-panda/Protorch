@@ -1,5 +1,5 @@
 import torch
-from torch.nn import ModuleDict, Module, Linear, Tanh, BatchNorm1d, Sequential, AdaptiveAvgPool1d
+from torch.nn import ModuleDict, Module, Linear, Tanh, Sequential, AdaptiveAvgPool1d, LayerNorm
 import torch.nn.functional as F
 from torch_geometric.nn import SAGEConv, HeteroConv, Linear, GATv2Conv, InnerProductDecoder
 from torch_geometric.nn.pool import global_mean_pool
@@ -12,13 +12,13 @@ class MLP(Module):
         for i in range(num_layers):
             input_dim = in_dim if i == 0 else hidden_dim
             output_dim = out_dim if i == num_layers - 1 else hidden_dim
+            layers.append(LayerNorm(input_dim))
             layers.append(Linear(input_dim, output_dim))
             layers.append(Tanh())
-            layers.append(BatchNorm1d(output_dim))
-        self.mlp = Sequential(*layers)
+        self.seq = Sequential(*layers)
 
     def forward(self, x):
-        return self.mlp(x)
+        return self.seq(x)
 
 class HGNN(Module):
     def __init__(self, data: HeteroData, hidden_channels, out_channels, num_layers=1):
