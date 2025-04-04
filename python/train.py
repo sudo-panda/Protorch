@@ -8,15 +8,21 @@ from utils.common import get_adj_mat_from_edge_index
 from GraMI.metrics import loss_fn, acc_fn
 from GraMI.model import GraMIModel
 
+from paths import GraMI_path, top_level_path
+
 device = "cuda"
 epochs =  1000
 
 
 writer = SummaryWriter()
 
+file_list = list((top_level_path / "HecBench" / "heterodatas").glob("*.pt"))
+
 dataset = FunctionGraphDataset(file_list, device=device)
 
 model = GraMIModel(dataset[0][1], 16, 8)
+if (GraMI_path / "latest.pt").exists():
+    model.load_state_dict(torch.load(GraMI_path / "latest.pt"), strict=True)
 model.to(device)
 model.train()
 
@@ -53,6 +59,8 @@ for i in range(epochs):
         tot_loss += loss
         tot_acc += acc
         index += 1
+
+    torch.save(model.state_dict(), GraMI_path / "latest.pt")
     writer.add_scalar("Loss/train", tot_loss / index, i)
     writer.add_scalar("Acc/train", tot_acc / index, i)
     writer.flush()
