@@ -14,7 +14,7 @@ def GraMI_loss(X, X_hat, adj_mat, V, A, edge_logits, X_hat_prime, X_prime, lambd
     loss_edge_kl /= len(V.keys())
 
     loss_edge = loss_edge_mse + 0.002 * loss_edge_kl
-    print(loss_edge, loss_edge_mse, 0.002 * loss_edge_kl)
+    # print(loss_edge, loss_edge_mse, 0.002 * loss_edge_kl)
 
     loss_attr_mse = 0
     for k in X_hat.keys():
@@ -34,7 +34,7 @@ def GraMI_loss(X, X_hat, adj_mat, V, A, edge_logits, X_hat_prime, X_prime, lambd
     loss_attr_kl += - 0.5 * torch.sum(1 + log_var - mean.pow(2) - log_var.exp())
 
     loss_attr = loss_attr_mse + 0.002 * loss_attr_kl
-    print(loss_attr, loss_attr_mse, 0.002 * loss_attr_kl)
+    # print(loss_attr, loss_attr_mse, 0.002 * loss_attr_kl)
 
     loss_rmse = 0
     for k in X.keys():
@@ -46,6 +46,6 @@ def GraMI_loss(X, X_hat, adj_mat, V, A, edge_logits, X_hat_prime, X_prime, lambd
     loss_rmse /= len(X.keys())
     loss_rmse = torch.sqrt(loss_rmse)
     
-    print(loss_rmse)
+    # print(loss_rmse)
     loss = lambda0 * loss_edge + lambda1 * loss_attr + lambda2 * loss_rmse
     return loss
