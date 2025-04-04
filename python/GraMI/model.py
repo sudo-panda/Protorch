@@ -2,7 +2,7 @@ import torch
 from torch.nn import ModuleDict, Module, Linear, Tanh, Sequential, AdaptiveAvgPool1d, LayerNorm
 import torch.nn.functional as F
 from torch_geometric.nn import SAGEConv, HeteroConv, Linear, GATv2Conv, InnerProductDecoder
-from utils.digit_embeddings.DigitEmbedding import get_digit_emb_of_number, embed_size
+from utils.digit_embeddings import get_digit_emb_of_number, embed_size
 from torch_geometric.nn.pool import global_mean_pool
 from torch_geometric.data import HeteroData
 
