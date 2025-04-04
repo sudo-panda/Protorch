@@ -1,13 +1,18 @@
+from tqdm import tqdm
 from dataset import FunctionGraphDataset
-from pathlib import Path
+
 import torch
+from torch.utils.tensorboard import SummaryWriter
+
 from utils.common import get_adj_mat_from_edge_index
-from GraMI.loss import GraMI_loss
+from GraMI.metrics import loss_fn, acc_fn
 from GraMI.model import GraMIModel
 
 device = "cuda"
+epochs =  1000
 
-file_list = list(Path("/mnt/E/Workspaces/LLNL/HecBench/heterodatas/").glob("*.pt"))
+
+writer = SummaryWriter()
 
 dataset = FunctionGraphDataset(file_list, device=device)
 
@@ -29,18 +34,26 @@ def single_step(data):
     assert torch.Tensor([data.x_dict[k].shape == X_prime[k].shape for k in X_prime.keys()]).all() == True
     assert torch.Tensor([adj_mat[k].shape == edge_logits[k].shape for k in data.edge_index_dict.keys()]).all() == True
 
-    loss = GraMI_loss(data.x_dict, X_hat, adj_mat, V, A, edge_logits, X_hat_prime, X_prime)
+    loss = loss_fn(data.x_dict, X_hat, adj_mat, V, A, edge_logits, X_hat_prime, X_prime)
+    acc = acc_fn(data.x_dict, adj_mat, edge_logits, X_prime)
 
-    print(loss)
     loss.backward()
     optimizer.step()
 
-index = 0
-for file_name, data in dataset:
-    index += 1
-    if index < 151:
-        continue
-    print(file_name, "\n")
-    single_step(data)
+    return loss.item(), acc.item()
 
-print(index)
+for i in range(epochs):
+    print("Epoch:", i)
+    index = 0
+    tot_loss = 0
+    tot_acc = 0
+
+    for file_name, data in tqdm(dataset):
+        loss, acc = single_step(data)
+        tot_loss += loss
+        tot_acc += acc
+        index += 1
+    writer.add_scalar("Loss/train", tot_loss / index, i)
+    writer.add_scalar("Acc/train", tot_acc / index, i)
+    writer.flush()
+
