@@ -32,7 +32,7 @@ def get_model():
 def get_adj_mat_from_edge_index(x_dict, edge_index_dict):
     adj_mat = {}
     for edge_typ, index in edge_index_dict.items():
-        adj_mat[edge_typ] = torch.zeros(x_dict[edge_typ[2]].size(0), x_dict[edge_typ[0]].size(0))
+        adj_mat[edge_typ] = torch.zeros(x_dict[edge_typ[2]].size(0), x_dict[edge_typ[0]].size(0), device=x_dict[edge_typ[0]].device)
         adj_mat[edge_typ][index[1], index[0]] = 1
 
     return adj_mat
