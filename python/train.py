@@ -19,7 +19,7 @@ def single_step(data):
 
     optimizer.zero_grad()
 
-    X_hat, V, A, X_hat_prime, edge_logits, X_prime = model(data.x_dict, data.edge_index_dict)
+    X_hat, V, A, X_hat_prime, edge_logits, X_prime = model(data.x_dict, data.edge_index_dict, data["text"])
 
     assert torch.Tensor([X_hat[k].shape == X_hat_prime[k].shape for k in X_hat_prime.keys()]).all() == True
     assert torch.Tensor([data.x_dict[k].shape == X_prime[k].shape for k in X_prime.keys()]).all() == True

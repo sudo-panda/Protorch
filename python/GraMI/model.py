@@ -2,6 +2,7 @@ import torch
 from torch.nn import ModuleDict, Module, Linear, Tanh, Sequential, AdaptiveAvgPool1d, LayerNorm
 import torch.nn.functional as F
 from torch_geometric.nn import SAGEConv, HeteroConv, Linear, GATv2Conv, InnerProductDecoder
+from utils.digit_embeddings.DigitEmbedding import get_digit_emb_of_number, embed_size
 from torch_geometric.nn.pool import global_mean_pool
 from torch_geometric.data import HeteroData
 
@@ -38,16 +39,25 @@ class HGNN(Module):
         return x_dict
 
 class GraMIInitializer(Module): 
-    def __init__(self, data, out_dim):
+    def __init__(self, heterodata, out_dim):
         super(GraMIInitializer, self).__init__()
 
-        self.MLP1 = ModuleDict({
-            node_type: MLP(data.size(1), (data.size(1) + 1) // 2, out_dim)
-            for node_type, data in data.x_dict.items()
+        in_dim = {node_type: data.size(1) for node_type, data in heterodata.x_dict.items()}
+        in_dim["number"] = embed_size
+
+        self.mlp_1 = ModuleDict({
+            node_type: MLP(in_dim[node_type], (in_dim[node_type] + 1) // 2, out_dim)
+            for node_type in heterodata.x_dict.keys()
         })
     
-    def forward(self, x_dict):
-        return {node_type: self.MLP1[node_type](x) for node_type, x in x_dict.items()}
+    def forward(self, x_dict, text_attrs):
+        embeddings = []
+        for number in text_attrs["number"]:
+            embeddings.append(get_digit_emb_of_number(number).unsqueeze(0).to(x_dict["number"].device))
+        embeddings = torch.cat(embeddings)
+        x_dict["number"] = embeddings
+
+        return {node_type: self.mlp_1[node_type](x) for node_type, x in x_dict.items()}
         
 class GraMIEncoder(Module):
     def __init__(self, hetero_data, in_dim, out_dim):
@@ -118,8 +128,8 @@ class GraMIModel(Module):
 
         return Z_V, Z_A
     
-    def forward(self, X, edge_index_dict):
-        X_hat = self.initializer(X)
+    def forward(self, X, edge_index_dict, text_attrs):
+        X_hat = self.initializer(X, text_attrs)
         V, A = self.encoder(X_hat, edge_index_dict)
         
         Z_V, Z_A = self.reparameterize(V, A)
