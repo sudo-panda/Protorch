@@ -1,7 +1,7 @@
 import torch.nn.functional as F
 import torch
 
-def GraMI_loss(X, X_hat, adj_mat, V, A, edge_logits, X_hat_prime, X_prime, lambda0=0.5, lambda1=0.1, lambda2=(1.0/15)):
+def loss_fn(X, X_hat, adj_mat, V, A, edge_logits, X_hat_prime, X_prime, lambda0=0.5, lambda1=0.1, lambda2=(1.0/15)):
     loss_edge_mse = 0
     for k in adj_mat.keys():
         loss_edge_mse += F.binary_cross_entropy_with_logits(edge_logits[k], adj_mat[k], reduction='mean')
@@ -49,3 +49,16 @@ def GraMI_loss(X, X_hat, adj_mat, V, A, edge_logits, X_hat_prime, X_prime, lambd
     # print(loss_rmse)
     loss = lambda0 * loss_edge + lambda1 * loss_attr + lambda2 * loss_rmse
     return loss
+
+def acc_fn(X, adj_mat, edge_logits, X_prime):
+    with torch.no_grad():
+        loss_edge_mse = 0
+        for k in adj_mat.keys():
+            loss_edge_mse -= F.binary_cross_entropy_with_logits(edge_logits[k], adj_mat[k], reduction='sum')
+        
+        loss_rmse = 0
+        for k in X.keys():
+            loss_rmse += F.mse_loss(X_prime[k], X[k], reduction='sum')
+        
+        loss = loss_edge_mse + loss_rmse
+        return torch.exp(-loss)
