@@ -1,2 +1,7 @@
-model: HeteroSAGE
+device: cuda
+train:
+  epochs: 1000
+  train_from_checkpoint: true
+  learning_rate: 0.001
+  weight_decay: 0.0001
 

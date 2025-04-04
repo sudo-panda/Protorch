@@ -4,33 +4,37 @@ from dataset import FunctionGraphDataset
 import torch
 from torch.utils.tensorboard import SummaryWriter
 
-from utils.common import get_adj_mat_from_edge_index
+from utils.common import get_adj_mat_from_edge_index, get_config
 from GraMI.metrics import loss_fn, acc_fn
 from GraMI.model import GraMIModel
 
 from paths import GraMI_path, top_level_path
 
-device = "cuda"
-epochs =  1000
-train_from_scratch = False
+config = get_config()
+
+device = config["device"]
+epochs =  config["train"]["epochs"]
+train_from_checkpoint = config["train"]["train_from_checkpoint"]
+lr = config["train"]["learning_rate"]
+decay = config["train"]["weight_decay"]
 
 
 writer = SummaryWriter()
 
-file_list = list((top_level_path / "HecBench" / "heterodatas").glob("*.pt"))
+file_list = list((top_level_path / "HecBench" / "heterodatas").glob("*.pt"))[:10]
 
 dataset = FunctionGraphDataset(file_list, device=device)
 
 model = GraMIModel(dataset[0][1], 16, 8)
 
 print(model)
-if train_from_scratch and (GraMI_path / "latest.pt").exists():
+if train_from_checkpoint and (GraMI_path / "latest.pt").exists():
     model.load_state_dict(torch.load(GraMI_path / "latest.pt"), strict=True)
 model.to(device)
 model.train()
 
 
-optimizer = torch.optim.AdamW(model.parameters(), lr=0.001)
+optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=decay)
 
 def single_step(data):
     adj_mat = get_adj_mat_from_edge_index(data.x_dict, data.edge_index_dict)
