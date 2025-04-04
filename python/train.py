@@ -34,3 +34,13 @@ def single_step(data):
     print(loss)
     loss.backward()
     optimizer.step()
+
+index = 0
+for file_name, data in dataset:
+    index += 1
+    if index < 151:
+        continue
+    print(file_name, "\n")
+    single_step(data)
+
+print(index)
