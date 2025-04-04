@@ -22,13 +22,6 @@ def get_config():
 
     return config_dict
 
-def get_model():
-    if models_path not in sys.path:
-        sys.path.append(str(models_path.absolute()))
-    model = get_config()["model"]
-    module = importlib.import_module(f"{model}.model")
-    return module.get_model()
-
 def get_adj_mat_from_edge_index(x_dict, edge_index_dict):
     adj_mat = {}
     for edge_typ, index in edge_index_dict.items():
