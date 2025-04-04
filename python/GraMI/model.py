@@ -69,21 +69,19 @@ class GraMIEncoder(Module):
         self.node_logvar = Linear(out_dim, out_dim)
 
         mlp_in_dim = out_dim * 8
-        self.pool = AdaptiveAvgPool1d(mlp_in_dim)
-        self.mlp = MLP(mlp_in_dim, out_dim * 2, out_dim, num_layers=3)
+        self.mlp_2 = Sequential(AdaptiveAvgPool1d(mlp_in_dim), MLP(mlp_in_dim, out_dim * 2, out_dim, num_layers=3))
 
         self.attr_mu = Linear(out_dim, out_dim)
         self.attr_logvar = Linear(out_dim, out_dim)
     
     def forward(self, x_dict, edge_index):
-        X_eps = {k: x + torch.normal(0, 1, size=x.shape) for k, x in x_dict.items()}
+        X_eps = {k: x + torch.normal(0, 1, size=x.shape, device=x.device) for k, x in x_dict.items()}
         h_V = self.hgnn_enc(X_eps, edge_index)
         V = {node_type: (self.node_mu(h), self.node_logvar(h)) for node_type, h in h_V.items()}
 
         X_hat = torch.cat([x_dict[node_type] for node_type in x_dict.keys()], dim=0)
-        X_hat_eps = X_hat + torch.normal(0, 1, size=X_hat.shape)
-        X_hat_eps_norm = self.pool(X_hat_eps.T)
-        h_A = self.mlp(X_hat_eps_norm)
+        X_hat_eps = X_hat + torch.normal(0, 1, size=X_hat.shape, device=X_hat.device)
+        h_A = self.mlp_2(X_hat_eps.T)
         A = (self.attr_mu(h_A), self.attr_logvar(h_A))
 
         return V, A
@@ -123,8 +121,8 @@ class GraMIModel(Module):
         self.decoder = GraMIDecoder(data, hidden_dim)
     
     def reparameterize(self, V, A):
-        Z_V = {k: v[0] + torch.normal(0, 1, size=v[1].shape) * torch.exp(0.5 * v[1]) for k, v in V.items()}
-        Z_A = A[0] + torch.normal(0, 1, size=A[1].shape) * torch.exp(0.5 * A[1])
+        Z_V = {k: v[0] + torch.normal(0, 1, size=v[1].shape, device=v[1].device) * torch.exp(0.5 * v[1]) for k, v in V.items()}
+        Z_A = A[0] + torch.normal(0, 1, size=A[1].shape, device=A[1].device) * torch.exp(0.5 * A[1])
 
         return Z_V, Z_A
     

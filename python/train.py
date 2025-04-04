@@ -5,12 +5,16 @@ from utils.common import get_adj_mat_from_edge_index
 from GraMI.loss import GraMI_loss
 from GraMI.model import GraMIModel
 
+device = "cuda"
+
 file_list = list(Path("/mnt/E/Workspaces/LLNL/HecBench/heterodatas/").glob("*.pt"))
 
-dataset = FunctionGraphDataset(file_list)
+dataset = FunctionGraphDataset(file_list, device=device)
 
 model = GraMIModel(dataset[0][1], 16, 8)
+model.to(device)
 model.train()
+
 
 optimizer = torch.optim.AdamW(model.parameters(), lr=0.01)
 
