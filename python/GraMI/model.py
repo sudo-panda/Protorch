@@ -44,14 +44,14 @@ class HGNN(Module):
         return x_dict
 
 class GraMIInitializer(Module): 
-    def __init__(self, heterodata, out_dim):
+    def __init__(self, heterodata, out_dim, digit_embed_size = 10):
         super(GraMIInitializer, self).__init__()
 
-        embed_size = 10
-        self.embeds = Embedding(feat_count, embed_size)
+        
+        self.embeds = Embedding(feat_count, digit_embed_size)
 
         in_dim = {node_type: data.size(1) for node_type, data in heterodata.x_dict.items()}
-        in_dim["number"] = embed_size
+        in_dim["number"] = digit_embed_size
 
         self.mlp_1 = ModuleDict({
             node_type: MLP(in_dim[node_type], (in_dim[node_type] + 1) // 2, out_dim)
@@ -60,8 +60,11 @@ class GraMIInitializer(Module):
     
     def forward(self, x_dict, text_attrs):
         number_embeds = []
-        for number in text_attrs["number"]:
-            number_embeds.append(get_digit_emb_of_number(number, self.embeds).unsqueeze(0).to(x_dict["number"].device))
+        for number_list in text_attrs["number"]:
+            if not isinstance(number_list, list):
+                number_list = [number_list]
+            for number in number_list:
+                number_embeds.append(get_digit_emb_of_number(number, self.embeds).unsqueeze(0).to(x_dict["number"].device))
         number_embeds = torch.cat(number_embeds)
         x_dict["number"] = number_embeds
 
@@ -122,9 +125,9 @@ class GraMIDecoder(Module):
         return X_hat_prime, edge_logits, X_prime
 
 class GraMIModel(Module):
-    def __init__(self, data: HeteroData, hidden_dim, encode_dim):
+    def __init__(self, data: HeteroData, hidden_dim, encode_dim, digit_embed_size=10):
         super(GraMIModel, self).__init__()
-        self.initializer = GraMIInitializer(data, hidden_dim)
+        self.initializer = GraMIInitializer(data, hidden_dim, digit_embed_size)
         self.encoder = GraMIEncoder(data, hidden_dim, encode_dim)
         self.decoder = GraMIDecoder(data, hidden_dim)
     

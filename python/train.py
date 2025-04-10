@@ -1,5 +1,6 @@
 from tqdm import tqdm
 from dataset import FunctionGraphDataset
+from torch_geometric.loader import DataLoader
 
 import torch
 from torch.utils.tensorboard import SummaryWriter
@@ -17,15 +18,17 @@ epochs =  config["train"]["epochs"]
 train_from_checkpoint = config["train"]["train_from_checkpoint"]
 lr = config["train"]["learning_rate"]
 decay = config["train"]["weight_decay"]
+batch_size = config["train"]["batch_size"]
 
 
 writer = SummaryWriter()
 
 file_list = list((top_level_path / "HecBench" / "heterodatas").glob("*.pt"))[:10]
 
-dataset = FunctionGraphDataset(file_list, device=device)
+train_dataloader = DataLoader(FunctionGraphDataset(file_list, device=device), batch_size=2, shuffle=False)
 
-model = GraMIModel(dataset[0][1], 16, 8)
+data_sample = next(iter(train_dataloader))
+model = GraMIModel(data_sample, 16, 8)
 
 print(model)
 if train_from_checkpoint and (GraMI_path / "latest.pt").exists():
@@ -36,7 +39,7 @@ model.train()
 
 optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=decay)
 
-def single_step(data):
+def single_step(data, model):
     adj_mat = get_adj_mat_from_edge_index(data.x_dict, data.edge_index_dict)
 
     optimizer.zero_grad()
@@ -61,8 +64,8 @@ for i in range(epochs):
     tot_loss = 0
     tot_acc = 0
 
-    for file_name, data in tqdm(dataset):
-        loss, acc = single_step(data)
+    for batch in tqdm(train_dataloader):
+        loss, acc = single_step(batch, model)
         tot_loss += loss
         tot_acc += acc
         index += 1
