@@ -49,39 +49,36 @@ def get_digit_and_pos(txt):
     return digits_array, digits_pos_array
 
 def get_digit_emb_of_number(token, embeds):
-    digits = []
-    digits_pos = []
     digit_embedding_vector = []
     digit_pos_vector = []
-    reduced_final_embedding = []
-    if is_numeric(token) == True:
-        digits, digits_pos = get_digit_and_pos(token)
-        for digit in digits:
-            if digit in feature_map:
-                lookup_tensor = torch.tensor([feature_map[digit]], dtype=torch.long)
-                node_embed = embeds(lookup_tensor)
-                digit_embedding_vector.append(node_embed)
-            else:
-                digit_embedding_vector.append(torch.Tensor([[0.0,] * embed_size]))
+    
+    assert is_numeric(token) == True, f"Token: {token} is not numeric"
 
-        digit_embedding_vector = torch.cat(digit_embedding_vector)
+    digits, digits_pos = get_digit_and_pos(token)
+    for digit in digits:
+        if digit in feature_map:
+            lookup_tensor = torch.tensor([feature_map[digit]], dtype=torch.long, device=embeds.weight.device)
+            node_embed = embeds(lookup_tensor)
+            digit_embedding_vector.append(node_embed)
+        else:
+            digit_embedding_vector.append(torch.Tensor([[0.0,] * embeds.embedding_dim]).to(device=embeds.weight.device))
 
-        for digit_pos in digits_pos:
-            if digit_pos in feature_map:
-                lookup_tensor = torch.tensor([feature_map[digit_pos]], dtype=torch.long)
-                node_embed = embeds(lookup_tensor)
-                node_embed_mult = node_embed * 10
-                digit_pos_vector.append(node_embed_mult)
-            else:
-                digit_pos_vector.append(torch.Tensor([[0.0,] * embed_size]))
+    digit_embedding_tensor = torch.cat(digit_embedding_vector)
 
-        digit_pos_vector = torch.cat(digit_pos_vector)
+    for digit_pos in digits_pos:
+        if digit_pos in feature_map:
+            lookup_tensor = torch.tensor([feature_map[digit_pos]], dtype=torch.long, device=embeds.weight.device)
+            node_embed = embeds(lookup_tensor)
+            node_embed_mult = node_embed * 10
+            digit_pos_vector.append(node_embed_mult)
+        else:
+            digit_pos_vector.append(torch.Tensor([[0.0,] * embeds.embedding_dim]).to(device=embeds.weight.device))
 
-        final_embedding = digit_embedding_vector * digit_pos_vector
-        final_embedding_sum = torch.sum(final_embedding, axis=0)
-        reduced_final_embedding = final_embedding_sum / (torch.max(torch.abs(final_embedding_sum)) + 1)
-    else:
-        reduced_final_embedding = torch.Tensor([0.0,] * embed_size)
+    digit_pos_tensor = torch.cat(digit_pos_vector)
+
+    final_embedding = digit_embedding_tensor * digit_pos_tensor
+    final_embedding_sum = torch.sum(final_embedding, axis=0)
+    reduced_final_embedding = final_embedding_sum / (torch.max(torch.abs(final_embedding_sum)) + 1)
 
     return reduced_final_embedding
 
