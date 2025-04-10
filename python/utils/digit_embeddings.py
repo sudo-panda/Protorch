@@ -17,7 +17,6 @@ for feature_line in feature_lines:
         feature_key = feature_key
         feature_map[feature_key] = feat_count
         feat_count = feat_count + 1
-embeds = nn.Embedding(feat_count, embed_size)
 
 def is_numeric(txt):
     if re.match(r"^[-+]?[0-9]*\.?[0-9]+(e[-+]?[0-9]+)?$", txt):
@@ -49,7 +48,7 @@ def get_digit_and_pos(txt):
     # print(digits_pos_array)
     return digits_array, digits_pos_array
 
-def get_digit_emb_of_number(token):
+def get_digit_emb_of_number(token, embeds):
     digits = []
     digits_pos = []
     digit_embedding_vector = []
@@ -88,8 +87,9 @@ def get_digit_emb_of_number(token):
 
 
 def main():
-    print(torch.cdist(get_digit_emb_of_number("1").unsqueeze(0), get_digit_emb_of_number("3").unsqueeze(0)))
-    print(torch.cdist(get_digit_emb_of_number("2").unsqueeze(0), get_digit_emb_of_number("4").unsqueeze(0)))
+    sample_embeds = nn.Embedding(feat_count, embed_size)
+    print(torch.cdist(get_digit_emb_of_number("1", sample_embeds).unsqueeze(0), get_digit_emb_of_number("3", sample_embeds).unsqueeze(0)))
+    print(torch.cdist(get_digit_emb_of_number("2", sample_embeds).unsqueeze(0), get_digit_emb_of_number("4", sample_embeds).unsqueeze(0)))
 
 if __name__ == "__main__":
     main()

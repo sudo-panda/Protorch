@@ -1,8 +1,8 @@
 import torch
-from torch.nn import ModuleDict, Module, Linear, Tanh, Sequential, AdaptiveAvgPool1d, LayerNorm
+from torch.nn import ModuleDict, Module, Linear, Tanh, Sequential, AdaptiveAvgPool1d, LayerNorm, Embedding
 import torch.nn.functional as F
 from torch_geometric.nn import SAGEConv, HeteroConv, Linear, GATv2Conv, InnerProductDecoder
-from utils.digit_embeddings import get_digit_emb_of_number, embed_size
+from utils.digit_embeddings import get_digit_emb_of_number, feat_count
 from torch_geometric.nn.pool import global_mean_pool
 from torch_geometric.data import HeteroData
 
@@ -42,6 +42,9 @@ class GraMIInitializer(Module):
     def __init__(self, heterodata, out_dim):
         super(GraMIInitializer, self).__init__()
 
+        embed_size = 10
+        self.embeds = Embedding(feat_count, embed_size)
+
         in_dim = {node_type: data.size(1) for node_type, data in heterodata.x_dict.items()}
         in_dim["number"] = embed_size
 
@@ -51,11 +54,11 @@ class GraMIInitializer(Module):
         })
     
     def forward(self, x_dict, text_attrs):
-        embeddings = []
+        number_embeds = []
         for number in text_attrs["number"]:
-            embeddings.append(get_digit_emb_of_number(number).unsqueeze(0).to(x_dict["number"].device))
-        embeddings = torch.cat(embeddings)
-        x_dict["number"] = embeddings
+            number_embeds.append(get_digit_emb_of_number(number, self.embeds).unsqueeze(0).to(x_dict["number"].device))
+        number_embeds = torch.cat(number_embeds)
+        x_dict["number"] = number_embeds
 
         return {node_type: self.mlp_1[node_type](x) for node_type, x in x_dict.items()}
         
