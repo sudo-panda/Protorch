@@ -24,13 +24,18 @@ batch_size = config["train"]["batch_size"]
 writer = SummaryWriter()
 
 file_list = list((top_level_path / "HecBench" / "heterodatas").glob("*.pt"))[:10]
+training_list = file_list[:int(len(file_list) * 0.6)]
+validation_list = file_list[int(len(file_list) * 0.6):int(len(file_list) * 0.8)]
+test_list = file_list[int(len(file_list) * 0.8):]
+print(f"Training/Validation/Test split: {len(training_list)}/{len(validation_list)}/{len(test_list)}")
 
-train_dataloader = DataLoader(FunctionGraphDataset(file_list, device=device), batch_size=2, shuffle=False)
+train_dataloader = DataLoader(FunctionGraphDataset(training_list, device=device), batch_size=batch_size, shuffle=True)
+val_dataloader = DataLoader(FunctionGraphDataset(validation_list, device=device), batch_size=batch_size, shuffle=False)
 
 data_sample = next(iter(train_dataloader))
 model = GraMIModel(data_sample, 16, 8)
 
-print(model)
+# print(model)
 if train_from_checkpoint and (GraMI_path / "latest.pt").exists():
     model.load_state_dict(torch.load(GraMI_path / "latest.pt"), strict=True)
 model.to(device)
@@ -60,18 +65,30 @@ def single_step(data, model):
 
 for i in range(epochs):
     print("Epoch:", i)
-    index = 0
-    tot_loss = 0
-    tot_acc = 0
+    index_train = 0
+    tot_train_loss = 0
+    tot_train_acc = 0
 
     for batch in tqdm(train_dataloader):
         loss, acc = single_step(batch, model)
-        tot_loss += loss
-        tot_acc += acc
-        index += 1
+        tot_train_loss += loss
+        tot_train_acc += acc
+        index_train += 1
+
+    index_val = 0
+    tot_val_loss = 0
+    tot_val_acc = 0
+
+    for batch in tqdm(val_dataloader):
+        loss, acc = single_step(batch, model)
+        tot_val_loss += loss
+        tot_val_acc += acc
+        index_val += 1
 
     torch.save(model.state_dict(), GraMI_path / "latest.pt")
-    writer.add_scalar("Loss/train", tot_loss / index, i)
-    writer.add_scalar("Acc/train", tot_acc / index, i)
+    writer.add_scalar("Loss/train", tot_train_loss / index_train, i)
+    writer.add_scalar("Acc/train", tot_train_acc / index_train, i)
+    writer.add_scalar("Loss/val", tot_val_loss / index_val, i)
+    writer.add_scalar("Acc/val", tot_val_acc / index_val, i)
     writer.flush()
 
