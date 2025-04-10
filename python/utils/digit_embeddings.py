@@ -8,7 +8,7 @@ script_path = pathlib.Path(__file__).parent.resolve()
 embed_size = 3
 
 feat_count = 0
-feature_file = open(str(script_path / "FeatureMap" / "feature_map_file_pg_plus_text_all_digits.txt"), 'r')
+feature_file = open(str(script_path / "FeatureMap" / "feature_map_file_pg_plus_text_all_digits.dat"), 'r')
 feature_lines = feature_file.readlines()
 feature_map = {}
 for feature_line in feature_lines:
