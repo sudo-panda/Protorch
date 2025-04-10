@@ -1,5 +1,5 @@
 import torch
-from torch.nn import ModuleDict, Module, Linear, Tanh, Sequential, AdaptiveAvgPool1d, LayerNorm, Embedding
+from torch.nn import ModuleDict, Module, Linear, Tanh, Sequential, AdaptiveAvgPool1d, LayerNorm, Embedding, ModuleList
 import torch.nn.functional as F
 from torch_geometric.nn import SAGEConv, HeteroConv, Linear, GATv2Conv, InnerProductDecoder
 from utils.digit_embeddings import get_digit_emb_of_number, feat_count
@@ -22,14 +22,19 @@ class MLP(Module):
         return self.seq(x)
 
 class HGNN(Module):
-    def __init__(self, data: HeteroData, hidden_channels, out_channels, num_layers=1):
+    def __init__(self, data: HeteroData, hidden_channels, out_channels, num_layers=2):
         super().__init__()
 
-        self.convs = torch.nn.ModuleList()
+        self.convs = ModuleList()
         for i in range(num_layers):
-            conv = HeteroConv({
-                edge_type: GATv2Conv((-1, -1), hidden_channels if i != num_layers - 1 else out_channels, add_self_loops=False) for edge_type in data.edge_index_dict.keys()
-            }, aggr='mean')
+            if i == 0:
+                conv = HeteroConv({
+                    edge_type: SAGEConv((-1, -1), hidden_channels if i != num_layers - 1 else out_channels) for edge_type in data.edge_index_dict.keys()
+                }, aggr='mean')   
+            else:
+                conv = HeteroConv({
+                    edge_type: GATv2Conv((-1, -1), hidden_channels if i != num_layers - 1 else out_channels, add_self_loops=False) for edge_type in data.edge_index_dict.keys()
+                }, aggr='mean')
             self.convs.append(conv)
 
     def forward(self, x_dict, edge_index_dict):
