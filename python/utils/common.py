@@ -29,3 +29,16 @@ def get_adj_mat_from_edge_index(x_dict, edge_index_dict):
         adj_mat[edge_typ][index[1], index[0]] = 1
 
     return adj_mat
+
+
+config = get_config()
+
+device = config["device"]
+epochs =  config["train"]["epochs"]
+train_from_checkpoint = config["train"]["train_from_checkpoint"]
+lr = config["train"]["learning_rate"]
+decay = config["train"]["weight_decay"]
+batch_size = config["train"]["batch_size"]
+
+if "world_size" in config["train"]:
+    world_size = config["train"]["world_size"]
