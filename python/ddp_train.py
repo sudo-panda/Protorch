@@ -80,7 +80,6 @@ def task(rank, world_size):
 
 
 def main():
-    world_size = 2
     mp.spawn(task,
         args=(world_size,),
         nprocs=world_size,
