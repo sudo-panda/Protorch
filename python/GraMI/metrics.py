@@ -52,7 +52,7 @@ def loss_fn(X, X_hat, adj_mat, V, A, edge_logits, X_hat_prime, X_prime, lambda0=
 
 def acc_fn(X, adj_mat, edge_logits, X_prime):
     with torch.no_grad():
-        acc_edge_mse = 1
+        acc_edge_mse = 0
         for k in adj_mat.keys():
             acc_edge_mse += torch.exp(-F.binary_cross_entropy_with_logits(edge_logits[k], adj_mat[k], reduction='sum'))
         acc_edge_mse /= len(adj_mat.keys())
