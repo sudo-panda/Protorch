@@ -7,33 +7,42 @@ from torch_geometric.nn.pool import global_mean_pool
 from torch_geometric.data import HeteroData
 
 class MLP(Module):
-    def __init__(self, in_dim, hidden_dim, out_dim, num_layers=2):
+    def __init__(self, layer_channels: list[int]):
         super().__init__()
+
+        assert len(layer_channels) > 1, "MLP must have at least 2 channels (input and output)"
+
         layers = []
+        num_layers = len(layer_channels) - 1
+
         for i in range(num_layers):
-            input_dim = in_dim if i == 0 else hidden_dim
-            output_dim = out_dim if i == num_layers - 1 else hidden_dim
+            input_dim = layer_channels[i]
+            output_dim = layer_channels[i + 1]
             layers.append(LayerNorm(input_dim))
             layers.append(Linear(input_dim, output_dim))
             layers.append(Tanh())
+        
         self.seq = Sequential(*layers)
 
     def forward(self, x):
         return self.seq(x)
 
 class HGNN(Module):
-    def __init__(self, data: HeteroData, hidden_channels, out_channels, num_layers=2):
+    def __init__(self, edges, layer_out_channels: list[int]):
         super().__init__()
 
+        num_layers = len(layer_out_channels)
+        assert num_layers > 0, "HGNN must have at least 1 layer"
+        
         self.convs = ModuleList()
         for i in range(num_layers):
             if i == 0:
                 conv = HeteroConv({
-                    edge_type: SAGEConv((-1, -1), hidden_channels if i != num_layers - 1 else out_channels) for edge_type in data.edge_index_dict.keys()
+                    edge_type: SAGEConv((-1, -1), layer_out_channels[i]) for edge_type in edges
                 }, aggr='mean')   
             else:
                 conv = HeteroConv({
-                    edge_type: GATv2Conv((-1, -1), hidden_channels if i != num_layers - 1 else out_channels, add_self_loops=False) for edge_type in data.edge_index_dict.keys()
+                    edge_type: GATv2Conv((-1, -1), layer_out_channels[i], add_self_loops=False) for edge_type in edges
                 }, aggr='mean')
             self.convs.append(conv)
 
@@ -44,18 +53,17 @@ class HGNN(Module):
         return x_dict
 
 class GraMIInitializer(Module): 
-    def __init__(self, heterodata, out_dim, digit_embed_size = 10):
+    def __init__(self, data_dims, hidden_dim_per_node: dict[str, list[int]], init_to_dim: int, digit_embed_size = 10):
         super(GraMIInitializer, self).__init__()
-
         
         self.embeds = Embedding(feat_count, digit_embed_size)
 
-        in_dim = {node_type: data.size(1) for node_type, data in heterodata.x_dict.items()}
-        in_dim["number"] = digit_embed_size
-
-        self.mlp_1 = ModuleDict({
-            node_type: MLP(in_dim[node_type], (in_dim[node_type] + 1) // 2, out_dim)
-            for node_type in heterodata.x_dict.keys()
+        self.MLP1 = ModuleDict({
+            node_type: MLP([
+                data_dims[node_type], 
+                *(hidden_dim_per_node[node_type] if node_type in hidden_dim_per_node else []), 
+                init_to_dim
+            ]) for node_type in data_dims.keys()
         })
     
     def forward(self, x_dict, text_attrs):
@@ -66,24 +74,24 @@ class GraMIInitializer(Module):
             for number in number_list:
                 number_embeds.append(get_digit_emb_of_number(number, self.embeds).unsqueeze(0).to(x_dict["number"].device))
         number_embeds = torch.cat(number_embeds)
+
         x_dict["number"] = number_embeds
 
-        return {node_type: self.mlp_1[node_type](x) for node_type, x in x_dict.items()}
+        return x_dict, {node_type: self.MLP1[node_type](x) for node_type, x in x_dict.items()}
         
 class GraMIEncoder(Module):
-    def __init__(self, hetero_data, in_dim, out_dim):
+    def __init__(self, edges, hgnn_hidden_channels, mlp_hidden_channels, encode_dim):
         super(GraMIEncoder, self).__init__()
         
-        self.hgnn_enc = HGNN(hetero_data, in_dim, out_dim, num_layers=1)
+        self.hgnn_enc = HGNN(edges, [*hgnn_hidden_channels, encode_dim])
 
-        self.node_mu = Linear(out_dim, out_dim)
-        self.node_logvar = Linear(out_dim, out_dim)
+        self.node_mu = Linear(encode_dim, encode_dim)
+        self.node_logvar = Linear(encode_dim, encode_dim)
 
-        mlp_in_dim = out_dim * 8
-        self.mlp_2 = Sequential(AdaptiveAvgPool1d(mlp_in_dim), MLP(mlp_in_dim, out_dim * 2, out_dim, num_layers=3))
+        self.mlp_2 = Sequential(AdaptiveAvgPool1d(mlp_hidden_channels[0]), MLP([*mlp_hidden_channels, encode_dim]))
 
-        self.attr_mu = Linear(out_dim, out_dim)
-        self.attr_logvar = Linear(out_dim, out_dim)
+        self.attr_mu = Linear(encode_dim, encode_dim)
+        self.attr_logvar = Linear(encode_dim, encode_dim)
     
     def forward(self, x_dict, edge_index):
         X_eps = {k: x + torch.normal(0, 1, size=x.shape, device=x.device) for k, x in x_dict.items()}
@@ -99,14 +107,19 @@ class GraMIEncoder(Module):
         
 
 class GraMIDecoder(Module):
-    def __init__(self, data: HeteroData, hidden_dim):
+    def __init__(self, edges, data_dims, init_dim, hidden_dim: dict[str, list[int]]):
         super(GraMIDecoder, self).__init__()
 
-        self.hgnn_dec = HGNN(data, hidden_dim // 2, hidden_dim, num_layers=1)
+        # HGNN to decode the Edge reconstruction and Attribute reconstruction into the 
+        # Node features that we get after GraMIInitializer
+        # Encoded Dim -> Init Dim
+        self.hgnn_dec = HGNN(edges, [init_dim])
 
-        self.MLP1 = ModuleDict({
-            node_type: MLP(hidden_dim, (data.size(1) + 1) // 2, data.size(1), num_layers=2)
-            for node_type, data in data.x_dict.items()
+        # MLP to decode the refonstructed Init Node features into the original Node features
+        # Init Dim -> Original Dim
+        self.MLP3 = ModuleDict({
+            node_type: MLP([init_dim, *(hidden_dim[node_type] if node_type in hidden_dim else []), dim])
+            for node_type, dim in data_dims.items()
         })
     
     def forward(self, Z_V, Z_A, edge_index):
@@ -120,16 +133,24 @@ class GraMIDecoder(Module):
 
         X_hat_prime = self.hgnn_dec(Z_prime, edge_index)
 
-        X_prime = {node_type: self.MLP1[node_type](x) for node_type, x in X_hat_prime.items()}
+        X_prime = {node_type: self.MLP3[node_type](x) for node_type, x in X_hat_prime.items()}
 
         return X_hat_prime, edge_logits, X_prime
 
 class GraMIModel(Module):
-    def __init__(self, data: HeteroData, hidden_dim, encode_dim, digit_embed_size=10):
+    def __init__(self, data: HeteroData, args):
         super(GraMIModel, self).__init__()
-        self.initializer = GraMIInitializer(data, hidden_dim, digit_embed_size)
-        self.encoder = GraMIEncoder(data, hidden_dim, encode_dim)
-        self.decoder = GraMIDecoder(data, hidden_dim)
+
+        digit_embed_size = args["digit_embed_size"]
+
+        data_dims = {node_type: data.size(1) for node_type, data in data.x_dict.items()}
+        data_dims["number"] = digit_embed_size
+        
+        edges = [edge_type for edge_type in data.edge_index_dict.keys()]
+
+        self.initializer = GraMIInitializer(data_dims, args["init"]["hidden_dims"], args["init"]["final_dim"], digit_embed_size)
+        self.encoder = GraMIEncoder(edges, args["encoder"]["hgnn_dims"], args["encoder"]["mlp_dims"], args["encoder"]["final_dim"])
+        self.decoder = GraMIDecoder(edges, data_dims, args["init"]["final_dim"], {node_type: args["init"]["hidden_dims"][node_type][::-1] for node_type in data_dims.keys()})
     
     def reparameterize(self, V, A):
         Z_V = {k: v[0] + torch.normal(0, 1, size=v[1].shape, device=v[1].device) * torch.exp(0.5 * v[1]) for k, v in V.items()}
@@ -137,14 +158,14 @@ class GraMIModel(Module):
 
         return Z_V, Z_A
     
-    def forward(self, X, edge_index_dict, text_attrs):
-        X_hat = self.initializer(X, text_attrs)
+    def forward(self, x_dict, edge_index_dict, text_attrs):
+        X, X_hat = self.initializer(x_dict, text_attrs)
         V, A = self.encoder(X_hat, edge_index_dict)
         
         Z_V, Z_A = self.reparameterize(V, A)
         
         X_hat_prime, edge_logits, X_prime = self.decoder(Z_V, Z_A, edge_index_dict)
         
-        return X_hat, V, A, X_hat_prime, edge_logits, X_prime
+        return X, X_hat, V, A, X_hat_prime, edge_logits, X_prime
     
 
