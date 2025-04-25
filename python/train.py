@@ -8,6 +8,7 @@ from torch.utils.tensorboard import SummaryWriter
 from utils.common import get_adj_mat_from_edge_index, device, epochs, train_from_checkpoint, lr, decay, batch_size
 from GraMI.metrics import loss_fn, acc_fn
 from GraMI.model import GraMIModel
+import sys
 
 from paths import GraMI_path, top_level_path
 
@@ -80,9 +81,13 @@ def main():
 
         torch.save(model.state_dict(), GraMI_path / "latest.pt")
         writer.add_scalar("Loss/train", tot_train_loss / index_train, i)
+        print("Loss/train", tot_train_loss / index_train, i)
         writer.add_scalar("Acc/train", tot_train_acc / index_train, i)
+        print("Acc/train", tot_train_acc / index_train, i)
         writer.add_scalar("Loss/val", tot_val_loss / index_val, i)
+        print("Loss/val", tot_val_loss / index_val, i)
         writer.add_scalar("Acc/val", tot_val_acc / index_val, i)
+        print("Acc/val", tot_val_acc / index_val, i)
         writer.flush()
     
     writer.close()
