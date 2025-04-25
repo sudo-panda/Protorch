@@ -7,7 +7,7 @@ import os
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.tensorboard import SummaryWriter
 from torch.utils.data import DataLoader, DistributedSampler
-from utils.common import epochs, train_from_checkpoint, lr, decay, batch_size, world_size
+from utils.common import epochs, get_log_dir_name, parse_args, train_from_checkpoint, lr, decay, batch_size, world_size
 from dataset import FunctionGraphDataset
 from train import training_list, validation_list, single_step
 from GraMI.metrics import loss_fn, acc_fn
@@ -29,16 +29,17 @@ def task(rank, world_size):
     val_dataloader = DataLoader(val_dataset, batch_size=batch_size, sampler=val_sampler)
 
     data_sample = next(iter(train_dataloader))
-    model = GraMIModel(data_sample, 16, 8)
-    if train_from_checkpoint and (GraMI_path / "latest.pt").exists():
-        model.load_state_dict(torch.load(GraMI_path / "latest.pt"), strict=True)
+    args = parse_args()
+    model = GraMIModel(data_sample, args)
+    if train_from_checkpoint and (GraMI_path / f"{args["model_name"]}.pt").exists():
+        model.load_state_dict(torch.load(GraMI_path / f"{args["model_name"]}.pt"), strict=True)
     model.to(device)
     
     ddp_model = DDP(model, device_ids=[rank])
     
     optimizer = torch.optim.Adam(ddp_model.parameters(), lr=lr, weight_decay=decay)
 
-    writer = SummaryWriter() if rank == 0 else None
+    writer = SummaryWriter(log_dir=get_log_dir_name(args["model_name"])) if rank == 0 else None
 
     for i in range(epochs):
         train_sampler.set_epoch(i)
@@ -66,7 +67,7 @@ def task(rank, world_size):
                 index_val += batch.batch_size
 
         if rank == 0:
-            torch.save(model.state_dict(), GraMI_path / "latest.pt")
+            torch.save(model.state_dict(), GraMI_path / f"{args["model_name"]}.pt")
             writer.add_scalar("Loss/train", tot_train_loss / index_train, i)
             writer.add_scalar("Acc/train", tot_train_acc / index_train, i)
             writer.add_scalar("Loss/val", tot_val_loss / index_val, i)
