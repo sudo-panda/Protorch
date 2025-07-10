@@ -75,7 +75,7 @@ def parse_args():
     return args
 
 def get_log_dir_name(model_name):
-    timestamp = datetime.now().strftime("%b%d_%H-%M-%S")
+    timestamp = datetime.datetime.now().strftime("%b%d_%H-%M-%S")
     hostname = socket.gethostname()
     log_dir_name = f"{timestamp}_{hostname}_{model_name}"
     return log_dir_name
