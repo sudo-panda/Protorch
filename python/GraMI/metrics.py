@@ -70,22 +70,24 @@ def acc_fn(X, adj_mat, edge_logits, X_prime):
         # 1) Edge‐accuracy
         acc_values = []
         for k, labels in adj_mat.items():
-            preds = (edge_logits[k] > 0.5).float()
+            probs = torch.sigmoid(edge_logits[k])
+            preds = (probs > 0.5).float()
             acc_k = (preds == labels.float()).float().mean()
             acc_values.append(acc_k)
         edge_acc = torch.stack(acc_values).mean() if acc_values else torch.tensor(0.0)
     
         # 2) Attribute R²
-        r2_values = []
+        r2_vals = []
         for k, x in X.items():
-            x_pred = X_prime[k]
-            # MSE per element
-            mse_k = F.mse_loss(x_pred, x, reduction='mean')
-            # Variance of the reference
+            x_hat = X_prime[k]
+            mse_k = F.mse_loss(x_hat, x, reduction='mean')
             var_k = x.var(unbiased=False)
-            # R², with eps to avoid div-by-zero
-            r2_k = 1 - mse_k / (var_k + 1e-8)
-            r2_values.append(r2_k)
-        r2_attr = torch.stack(r2_values).mean() if r2_values else torch.tensor(0.0)
+            if var_k.item() < 1e-6:
+                # skip near-constant features
+                continue
+            # add small fraction of var to avoid divide-by-zero
+            r2_k = 1 - mse_k / (var_k + 1e-3 * var_k)
+            r2_vals.append(r2_k)
+        r2_attr = torch.stack(r2_vals).mean() if r2_vals else torch.tensor(0.) 
     
-        return (edge_acc + r2_attr) / 2
+        return edge_acc, r2_attr

@@ -31,9 +31,8 @@ def single_step(data, model):
 
     loss = loss_fn(X, X_hat, adj_mat, V, A, edge_logits, X_hat_prime, X_prime)
     with torch.no_grad():
-        acc = acc_fn(X, adj_mat, edge_logits, X_prime)
-
-    return loss, acc
+        edge_acc, r2_attr = acc_fn(X, adj_mat, edge_logits, X_prime)
+    return loss, edge_acc, r2_attr 
 
 def main():
     train_dataloader = DataLoader(FunctionGraphDataset(training_list, device=device), batch_size=batch_size, shuffle=True)
@@ -57,41 +56,56 @@ def main():
         print("Epoch:", i)
         index_train = 0
         tot_train_loss = 0
-        tot_train_acc = 0
+        tot_train_edge_acc = 0
+        tot_train_r2_attr = 0
 
         model.train()
         for batch in tqdm(train_dataloader):
             optimizer.zero_grad()
-            loss, acc = single_step(batch, model)
+            loss, edge_acc, r2_attr = single_step(batch, model)
             loss.backward()
             optimizer.step()
 
             tot_train_loss += loss.item() * batch.batch_size
-            tot_train_acc += acc.item() * batch.batch_size
+            tot_train_edge_acc += edge_acc.item() * batch.batch_size
+            tot_train_r2_attr += r2_attr.item() * batch.batch_size
             index_train += batch.batch_size
 
 
         index_val = 0
         tot_val_loss = 0
-        tot_val_acc = 0
+        tot_val_edge_acc = 0
+        tot_val_r2_attr = 0
 
         model.eval()
         with torch.no_grad():
             for batch in tqdm(val_dataloader):
-                loss, acc = single_step(batch, model)
+                loss, edge_acc, r2_attr = single_step(batch, model)
                 tot_val_loss += loss.item() * batch.batch_size
-                tot_val_acc += acc.item() * batch.batch_size
+                tot_val_edge_acc += edge_acc.item() * batch.batch_size
+                tot_val_r2_attr += r2_attr.item() * batch.batch_size
                 index_val += batch.batch_size
 
-        torch.save(model.state_dict(), GraMI_path / f"{args["model_name"]}.pt")
+        if i % 100 == 0:
+            torch.save(model.state_dict(), GraMI_path / f"{model_name}_{i}.pt")
+
         writer.add_scalar("Loss/train", tot_train_loss / index_train, i)
         print("Loss/train", tot_train_loss / index_train, i)
-        writer.add_scalar("Acc/train", tot_train_acc / index_train, i)
-        print("Acc/train", tot_train_acc / index_train, i)
+
+        writer.add_scalar("Acc/train", tot_train_edge_acc / index_train, i)
+        print("edge-acc/train", tot_train_edge_acc / index_train, i)
+
+        writer.add_scalar("Acc/train", tot_train_r2_attr / index_train, i)
+        print("r2-attr/train", tot_train_r2_attr / index_train, i)
+
+
         writer.add_scalar("Loss/val", tot_val_loss / index_val, i)
         print("Loss/val", tot_val_loss / index_val, i)
-        writer.add_scalar("Acc/val", tot_val_acc / index_val, i)
-        print("Acc/val", tot_val_acc / index_val, i)
+        writer.add_scalar("edge-acc/val", tot_val_edge_acc / index_val, i)
+        print("edge-acc/val", tot_val_edge_acc / index_val, i)
+        writer.add_scalar("r2-attr/val", tot_val_r2_attr / index_val, i)
+        print("r2-attr/val", tot_val_r2_attr / index_val, i)
+
         writer.flush()
     
     writer.close()
