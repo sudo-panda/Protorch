@@ -1,6 +1,8 @@
 from tqdm import tqdm
 from dataset import FunctionGraphDataset
 from torch_geometric.loader import DataLoader
+import glob, re
+from pathlib import Path
 
 import torch
 from torch.utils.tensorboard import SummaryWriter
@@ -19,6 +21,29 @@ training_list = file_list[:int(len(file_list) * 0.6)]
 validation_list = file_list[int(len(file_list) * 0.6):int(len(file_list) * 0.8)]
 test_list = file_list[int(len(file_list) * 0.8):]
 print(f"Training/Validation/Test split: {len(training_list)}/{len(validation_list)}/{len(test_list)}")
+
+
+import glob, re
+
+def find_latest_file(pattern="file_*.pt"):
+    print(pattern)
+    files = glob.glob(pattern)
+    print(files)
+    versioned = []
+    pattern = pattern.replace("*", "(\d+)")
+    print(pattern)
+    regex = re.compile(pattern)
+    print(regex)
+    for f in files:
+        m = re.match(pattern, f)
+        print(m)
+        if m:
+            versioned.append((int(m.group(1)), f))
+    if not versioned:
+        return 0, None
+    # pick the tuple with the largest version
+    max_v = max(versioned, key= lambda t: t[0])
+    return max_v
 
 def single_step(data, model):
     adj_mat = get_adj_mat_from_edge_index(data.x_dict, data.edge_index_dict)
@@ -44,15 +69,20 @@ def main():
     model = GraMIModel(data_sample, args)
 
     # print(model)
-    if train_from_checkpoint and (GraMI_path / f"{args["model_name"]}.pt").exists():
-        model.load_state_dict(torch.load(GraMI_path / f"{args["model_name"]}.pt"), strict=True)
+    model_name = args["model_name"]
+
+
+    print(model_name)
+    e, latest = find_latest_file(str(GraMI_path / f"{model_name}_")+"*.pt")
+    if train_from_checkpoint and latest is not None and Path(latest).exists():
+        model.load_state_dict(torch.load(latest), strict=True)
     model.to(device)
 
 
     optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=decay)
     writer = SummaryWriter(log_dir=get_log_dir_name(args["model_name"]))
 
-    for i in range(epochs):
+    for i in range(e, epochs):
         print("Epoch:", i)
         index_train = 0
         tot_train_loss = 0
