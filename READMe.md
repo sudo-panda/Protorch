@@ -135,4 +135,17 @@ Launch training:
 python train.py
 ```
 
+## Running Jupyter server
+Run this to launch jupyter server on **tioga**:
 
+```bash
+source /usr/workspace/LExperts/mltraining/activate-$SYS_TYPE.sh
+cd /usr/workspace/LExperts/mltraining/Protorch/python
+flux run -t 6h -N1 -c2 -g1  bash -c "python -m jupyter notebook --no-browser --ip=0.0.0.0 --port=8888"
+```
+
+It will output the server address in this form:
+```bash
+http://tioga28:8888/tree?token=fdasdjfskdjfsafksjafjksdfjasd
+```
+and you can use it to connect it to a notebook
