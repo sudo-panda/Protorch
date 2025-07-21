@@ -132,7 +132,7 @@
             { "LayerNorm":  [8]   },
             { "Dropout":    [0.1]  }
         ],
-        "stochastic": false
+        "stochastic": true
     },
     "node_encoder": {
         "layers": [
@@ -149,6 +149,6 @@
             { "LayerNorm": [8] },
             { "Dropout": [0.1] }
         ],
-        "stochastic": false
+        "stochastic": true
     }
 }

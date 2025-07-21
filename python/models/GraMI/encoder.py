@@ -1,4 +1,3 @@
-
 from torch import nn
 import torch
 from models.common import Transforms
@@ -6,13 +5,13 @@ from torch_geometric.data import HeteroData
 from models.common import MLP, HGNN
 
 class GraMIInit(nn.Module):
-    def __init__(self, sample_shapes, config, device):
+    def __init__(self, config, x_dict_shape, device):
         super(GraMIInit, self).__init__()
         self.config = config
         self.device = device
 
         self.layer_dict = nn.ModuleDict({
-            node_name: MLP(layer_config, sample_shapes[node_name][-1]).to(device)
+            node_name: MLP(layer_config, x_dict_shape[node_name][-1]).to(device)
             for node_name, layer_config in config.items()
         })
 
@@ -27,7 +26,7 @@ class GraMIInit(nn.Module):
                 for node_name, layer in self.layer_dict.items()}
 
 class GraMIAttributeEncoder(nn.Module):
-    def __init__(self, dim, config, device, batch_size, variational=[], stochastic=False):
+    def __init__(self, pool_dim, config, device, batch_size, variational=[], stochastic=False):
         super(GraMIAttributeEncoder, self).__init__()
         self.config = config
         self.device = device
@@ -35,14 +34,14 @@ class GraMIAttributeEncoder(nn.Module):
         self.stochastic = stochastic
         self.variational = bool(len(variational) > 0)
 
-        self.dim = dim
+        self.pool_dim = pool_dim
 
-        self.pool = nn.AdaptiveAvgPool1d(self.dim)
+        self.pool = nn.AdaptiveAvgPool1d(self.pool_dim)
 
-        self.mlp = MLP(config, self.dim).to(device)
+        self.mlp = MLP(self.config, self.pool_dim).to(device)
 
         if self.stochastic:
-            self.mlp_eps = MLP(config, self.dim).to(device)
+            self.mlp_eps = MLP(self.config, self.pool_dim).to(device)
 
         ae_dim = self.mlp.get_output_dim()
 
@@ -78,10 +77,16 @@ class GraMIAttributeEncoder(nn.Module):
         assert all([z.shape == self.get_output_shape(X_T_shape) for z in z_A]) if isinstance(z_A, tuple) else z_A.shape == self.get_output_shape(X_T_shape)
         return z_A # (B, F, N)
 
+    def get_output_dim(self):
+        if self.variational:
+            return self.mlp_mean.get_output_dim()
+        
+        return self.mlp.get_output_dim()
+
     def get_output_shape(self, X_T_shape):
         batch_size = len(X_T_shape)
-        
-        X_T_pooled_shape = torch.Size([batch_size, X_T_shape[0][0], self.dim * batch_size])
+
+        X_T_pooled_shape = torch.Size([batch_size, X_T_shape[0][0], self.pool_dim * batch_size])
 
         if self.variational:
             return self.mlp_mean.get_output_shape(X_T_pooled_shape)
@@ -89,21 +94,21 @@ class GraMIAttributeEncoder(nn.Module):
         return self.mlp.get_output_shape(X_T_pooled_shape)
 
 class GraMINodeEncoder(nn.Module):
-    def __init__(self, sample_shape, config, device, variational=[], stochastic=False):
+    def __init__(self, config, edge_index_dict_shape, device, variational=[], stochastic=False):
         super(GraMINodeEncoder, self).__init__()
         self.config = config
         self.device = device
         self.stochastic = stochastic
         self.variational = (len(variational) > 0)
 
-        self.hgnn = HGNN(config, sample_shape).to(device)
+        self.hgnn = HGNN(config, edge_index_dict_shape).to(device)
 
         if variational:
             self.mlp_mean = MLP(variational, self.hgnn.get_output_dim()).to(device)
             self.mlp_var  = MLP(variational, self.hgnn.get_output_dim()).to(device)
 
         if stochastic:
-            self.hgnn_eps = HGNN(config, sample_shape).to(device)
+            self.hgnn_eps = HGNN(config, edge_index_dict_shape).to(device)
 
     def forward(self, graph):
         z_V = self.hgnn(graph.x_dict, graph.edge_index_dict)
@@ -113,14 +118,21 @@ class GraMINodeEncoder(nn.Module):
 
             hidden_eps = self.hgnn_eps(eps, graph.edge_index_dict)
 
-            z_V = {node_name: (h + he) for node_name, (h, he) in zip(z_V.items(), hidden_eps.items())}
+            z_V = {node_name: (z_V[node_name] + hidden_eps[node_name]) for node_name in z_V}
 
         if self.variational:
             z_V = {node_name: (self.mlp_mean(z), self.mlp_var(z)) for node_name, z in z_V.items()}
 
-        assert {node: ((z[0].shape, z[1].shape) if isinstance(z, tuple) else z.shape) for node, z in z_V.items()} \
-               == self.get_output_shape({node: x.shape for node, x in graph.x_dict.items()})
+        output_data_shape = {node: ((z[0].shape, z[1].shape) if isinstance(z, tuple) else z.shape) for node, z in z_V.items()}
+        output_shape = self.get_output_shape({node: x.shape for node, x in graph.x_dict.items()})
+        assert output_data_shape == output_shape, f"Output data shape mismatch: {output_data_shape} != {output_shape}"
         return z_V
+
+    def get_output_dim(self):
+        if self.variational:
+            return self.mlp_mean.get_output_dim()
+
+        return self.hgnn.get_output_dim()
 
     def get_output_shape(self, x_dict_shape):
         if self.variational:
@@ -129,7 +141,7 @@ class GraMINodeEncoder(nn.Module):
         return self.hgnn.get_output_shape(x_dict_shape)
 
 class GraMIEncoder(nn.Module):
-    def __init__(self, sample_shape, config, device, batch_size):
+    def __init__(self, config, data_shapes, device, batch_size):
         super(GraMIEncoder, self).__init__()
         self.config = config
         self.device = device
@@ -138,32 +150,40 @@ class GraMIEncoder(nn.Module):
         transforms   = self.config["transforms"]
         attr_enc_cfg = self.config["attribute_encoder"]
         node_enc_cfg = self.config["node_encoder"]
-        assert bool(len(attr_enc_cfg["variational"]) > 0) == bool(len(node_enc_cfg["variational"]) > 0)
 
-        self.node_order = list(sample_shape["x_dict"].keys())
+        attr_enc_cfg_var = attr_enc_cfg.get("variational", [])
+        node_enc_cfg_var = node_enc_cfg.get("variational", [])
+
+        self.variational = bool(len(attr_enc_cfg_var) > 0)
+        assert self.variational == bool(len(node_enc_cfg_var) > 0)
+
+        self.node_order = list(data_shapes["x_dict"].keys())
 
         self.transforms = Transforms(transforms)
-        sample_shape["x_dict"] = self.transforms.get_output_shape(sample_shape["x_dict"])
-        print("After transforms:", sample_shape)
+        data_shapes["x_dict"] = self.transforms.get_output_shape(data_shapes["x_dict"])
 
-        self.init_layers = GraMIInit(sample_shape["x_dict"], self.config["init"], device)
-        sample_shape["x_dict"] = self.init_layers.get_output_shape(sample_shape["x_dict"])
-        print("After init layers:", sample_shape)
+        self.init_layers = GraMIInit(self.config["init"], data_shapes["x_dict"], device)
+        data_shapes["x_dict"] = self.init_layers.get_output_shape(data_shapes["x_dict"])
 
-        self.attribute_encoder = GraMIAttributeEncoder(attr_enc_cfg["dim"], attr_enc_cfg["layers"], 
-                                                       self.device, self.batch_size,
-                                                       variational=attr_enc_cfg["variational"],
+        self.attribute_encoder = GraMIAttributeEncoder(attr_enc_cfg["dim"], 
+                                                       attr_enc_cfg["layers"], 
+                                                       self.device, 
+                                                       self.batch_size,
+                                                       variational=attr_enc_cfg_var,
                                                        stochastic=attr_enc_cfg["stochastic"])
-        X_T_shape = GraMIEncoder.get_X_t_shape(sample_shape, self.node_order)
+        X_T_shape = GraMIEncoder.get_X_t_shape(data_shapes, self.node_order)
         attr_enc_shape = self.attribute_encoder.get_output_shape(X_T_shape)
-        print("After attribute encoder:", attr_enc_shape)
 
 
-        self.node_encoder = GraMINodeEncoder(sample_shape["edge_index_dict"], node_enc_cfg["layers"], device,
-                                           variational=node_enc_cfg["variational"], stochastic=node_enc_cfg["stochastic"])
-        node_enc_shape = sample_shape.copy()
+        self.node_encoder = GraMINodeEncoder(node_enc_cfg["layers"],
+                                             data_shapes["edge_index_dict"], 
+                                             device,
+                                             variational=node_enc_cfg_var, 
+                                             stochastic=node_enc_cfg["stochastic"])
+        node_enc_shape = data_shapes.copy()
         node_enc_shape["x_dict"] = self.node_encoder.get_output_shape(node_enc_shape["x_dict"])
-        print("After node encoder:", node_enc_shape)
+
+        assert self.attribute_encoder.get_output_dim() == self.node_encoder.get_output_dim(), "The output dimension of the Node encoder and Attribute encoder must match!"
 
     @staticmethod
     def get_X_t(graph, node_order):
@@ -184,11 +204,11 @@ class GraMIEncoder(nn.Module):
         return X_t
     
     @staticmethod
-    def get_X_t_shape(sample_shape, node_order):
+    def get_X_t_shape(data_shapes, node_order):
         X_t = []
         for node_name in node_order:
-            ptr = sample_shape["ptr"][node_name]
-            x = sample_shape["x_dict"][node_name]
+            ptr = data_shapes["ptr"][node_name]
+            x = data_shapes["x_dict"][node_name]
             if len(X_t) == 0:
                 for i in range(len(ptr) - 1):
                     X_t.append([x[-1], 0])
@@ -214,3 +234,19 @@ class GraMIEncoder(nn.Module):
         z_V = self.node_encoder(graph)
 
         return x, x_tile, z_A, z_V
+
+    def get_output_dim(self):
+        return self.attribute_encoder.get_output_dim()
+
+    def get_output_shape(self, data_shapes):
+        x_shape = self.transforms.get_output_shape(data_shapes)
+        x_tile_shape = self.init_layers.get_output_shape(data_shapes)
+        X_t_shape = GraMIEncoder.get_X_t_shape(data_shapes, self.node_order)
+        z_A_shape = self.attribute_encoder.get_output_shape(X_t_shape)
+        z_V_shape = self.node_encoder.get_output_shape(x_shape)
+        return {
+            "x": x_shape,
+            "x_tile": x_tile_shape,
+            "z_A": z_A_shape,
+            "z_V": z_V_shape
+        }

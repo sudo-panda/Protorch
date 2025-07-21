@@ -23,7 +23,7 @@ class GraMIReparameterize(nn.Module):
             { node: GraMIReparameterize.reparameterize(z_v) for node, z_v in z_V.items()}
 
 class GraMI(nn.Module):
-    def __init__(self, sample_shape, config, device, batch_size):
+    def __init__(self, config, data_shapes, device, batch_size):
         super(GraMI, self).__init__()
         self.config = config
         self.device = device
@@ -32,17 +32,17 @@ class GraMI(nn.Module):
         self.is_variational = bool(len(self.config["node_encoder"]["variational"]) > 0)
         assert self.is_variational == bool(len(self.config["attribute_encoder"]["variational"]) > 0)
 
-        self.encoder = GraMIEncoder(sample_shape, self.config, self.device, self.batch_size)
+        self.encoder = GraMIEncoder(self.config, data_shapes, self.device, self.batch_size)
 
         if self.is_variational:
             self.reparameterize = GraMIReparameterize()
 
         if "decoder" not in self.config:
-            decoder_config = GraMI.invert_config(self.config)
+            self.decoder_config = GraMI.invert_config(self.config)
         else:
-            decoder_config = self.config["decoder"]
+            self.decoder_config = self.config["decoder"]
 
-        self.decoder = GraMIDecoder(sample_shape, decoder_config, self.device, self.batch_size)
+        self.decoder = GraMIDecoder(self.decoder_config, data_shapes, self.device, self.batch_size)
 
     @staticmethod
     def invert_config(config):

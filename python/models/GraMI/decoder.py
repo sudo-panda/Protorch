@@ -7,24 +7,24 @@ from models.common import MLP, HGNN
 
 
 class GraMINodeDecoder(nn.Module):
-    def __init__(self, edge_index_shape):
+    def __init__(self, edge_index_dict_shapes):
         super(GraMINodeDecoder, self).__init__()
-        self.edge_index_shape = edge_index_shape
+        self.edge_index_dict_shapes = edge_index_dict_shapes
 
     def forward(self, z_V: dict[str, torch.Tensor]):
         edge_logits = {}
-        for edge_type in self.edge_index_shape:
+        for edge_type in self.edge_index_dict_shapes:
             edge_logits[edge_type] = torch.sigmoid(torch.matmul(z_V[edge_type[2]], z_V[edge_type[0]].T))
         return edge_logits
 
 class GraMIAttributeDecoder(nn.Module):
-    def __init__(self, attr_dim, config, device, batch_size):
+    def __init__(self, config, data_shapes, device, batch_size):
         super(GraMIAttributeDecoder, self).__init__()
         self.layers = nn.ModuleList()
         self.device = device
         self.batch_size = batch_size
 
-        self.hgnn = HGNN(config["hgnn"], attr_dim["edge_index_dict"]).to(device=self.device)
+        self.hgnn = HGNN(config["hgnn"], data_shapes["edge_index_dict"]).to(device=self.device)
         self.mlp = {
             node_type: MLP(node_config, self.hgnn.get_output_dim()).to(device=self.device)
             for node_type, node_config in config["mlp"].items()
@@ -74,15 +74,15 @@ class GraMIAttributeDecoder(nn.Module):
         return x_tile_rec, x_rec
 
 class GraMIDecoder(nn.Module):
-    def __init__(self, sample_shape, config, device, batch_size):
+    def __init__(self, config, data_shapes, device, batch_size):
         super(GraMIDecoder, self).__init__()
         self.config = config
         self.device = device
         self.batch_size = batch_size
 
-        self.node_decoder = GraMINodeDecoder(sample_shape["edge_index_dict"])
+        self.node_decoder = GraMINodeDecoder(data_shapes["edge_index_dict"])
 
-        self.attribute_decoder = GraMIAttributeDecoder(sample_shape, config, device, batch_size)
+        self.attribute_decoder = GraMIAttributeDecoder(config, data_shapes, device, batch_size)
 
     def forward(self, 
                 z_A: torch.Tensor, 
