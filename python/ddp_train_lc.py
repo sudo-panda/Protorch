@@ -1,3 +1,4 @@
+import json
 import torch
 import torch.distributed as dist
 import torch.multiprocessing as mp
@@ -5,18 +6,18 @@ import torch.nn as nn
 import torch.optim as optim
 import os
 from torch.nn.parallel import DistributedDataParallel as DDP
-#from torch.utils.tensorboard import SummaryWriter
+from torch.utils.tensorboard import SummaryWriter
 from torch.utils.data import DataLoader, DistributedSampler
 from utils.common import epochs, train_from_checkpoint, lr, decay, batch_size, world_size
-from dataset import FunctionGraphDataset
-#from train import training_list, validation_list, single_step
+from dataset import HecBenchDataset
+from train import train_files, val_files, single_step
 import socket
 from pathlib import Path
 import sys
 from models.GraMI.metrics import loss_fn, acc_fn
-from GraMI.model import GraMIModel
+from models.GraMI import GraMI
 
-from paths import GraMI_path, top_level_path
+from paths import GraMI_path
 
 
 class System():
@@ -251,18 +252,21 @@ def task(local_rank, rank, world_size):
     device = torch.device(f"cuda:{local_rank}")
     print(f"I have device {device}")
 
-    train_dataset = FunctionGraphDataset(training_list, device=device)
+    train_dataset = HecBenchDataset(train_files, device=device)
     train_sampler = DistributedSampler(train_dataset, num_replicas=world_size, rank=rank, shuffle=True)
     train_dataloader = DataLoader(train_dataset, batch_size=batch_size, sampler=train_sampler)
 
-    val_dataset = FunctionGraphDataset(validation_list, device=device)
+    val_dataset = HecBenchDataset(val_files, device=device)
     val_sampler = DistributedSampler(val_dataset, num_replicas=world_size, rank=rank, shuffle=False)
     val_dataloader = DataLoader(val_dataset, batch_size=batch_size, sampler=val_sampler)
 
+    with open(GraMI_path / "config.json") as f:
+        model_config = json.load(f)
+
     data_sample = next(iter(train_dataloader))
-    model = GraMIModel(data_sample, 16, 8)
-    if train_from_checkpoint and (GraMI_path / "latest.pt").exists():
-        model.load_state_dict(torch.load(GraMI_path / "latest.pt"), strict=True)
+    model = GraMI(model_config, data_sample, device=device, batch_size=batch_size)
+    if train_from_checkpoint and (GraMI_path / f"{model_config['model_name']}.pt").exists():
+        model.load_state_dict(torch.load(GraMI_path / f"{model_config['model_name']}.pt"), strict=True)
 
     model.to(device)
     ddp_model = DDP(model, device_ids=[local_rank])
@@ -273,35 +277,39 @@ def task(local_rank, rank, world_size):
 
     for i in range(epochs):
         train_sampler.set_epoch(i)
-        index_train, tot_train_loss, tot_train_acc = 0, 0, 0
-        index_val, tot_val_loss, tot_val_acc = 0, 0, 0
+        index_train, tot_train_loss, tot_train_edge_acc, tot_train_r2_attr = 0, 0, 0, 0
+        index_val, tot_val_loss, tot_val_edge_acc, tot_val_r2_attr = 0, 0, 0, 0
 
         ddp_model.train()
         for batch in train_dataloader:
             optimizer.zero_grad()
-            loss, acc = single_step(batch, ddp_model)
+            loss, edge_acc, r2_attr = single_step(batch, ddp_model)
             loss.backward()
             optimizer.step()
 
             tot_train_loss += loss.item() * batch.batch_size
-            tot_train_acc += acc.item() * batch.batch_size
+            tot_train_edge_acc += edge_acc.item() * batch.batch_size
+            tot_train_r2_attr += r2_attr.item() * batch.batch_size
             index_train += batch.batch_size
 
         ddp_model.eval()
         with torch.no_grad():
             for batch in val_dataloader:
-                loss, acc = single_step(batch, ddp_model)
+                loss, edge_acc, r2_attr = single_step(batch, ddp_model)
 
                 tot_val_loss += loss.item() * batch.batch_size
-                tot_val_acc += acc.item() * batch.batch_size
+                tot_val_edge_acc += edge_acc.item() * batch.batch_size
+                tot_val_r2_attr += r2_attr.item() * batch.batch_size
                 index_val += batch.batch_size
 
         if rank == 0:
             torch.save(model.state_dict(), GraMI_path / "latest.pt")
             writer.add_scalar("Loss/train", tot_train_loss / index_train, i)
-            writer.add_scalar("Acc/train", tot_train_acc / index_train, i)
+            writer.add_scalar("edge-acc/train", tot_train_edge_acc / index_train, i)
+            writer.add_scalar("r2-attr/train", tot_train_r2_attr / index_train, i)
             writer.add_scalar("Loss/val", tot_val_loss / index_val, i)
-            writer.add_scalar("Acc/val", tot_val_acc / index_val, i)
+            writer.add_scalar("edge-acc/val", tot_val_edge_acc / index_val, i)
+            writer.add_scalar("r2-attr/val", tot_val_r2_attr / index_val, i)
             writer.flush()
     
     if writer:

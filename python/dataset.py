@@ -1,11 +1,11 @@
 import torch
 from torch_geometric.data import HeteroData, Dataset
 
-class FunctionGraphDataset(Dataset):
+class HecBenchDataset(Dataset):
     def __init__(self, file_list, device="cpu"):
-        super(FunctionGraphDataset, self).__init__()
-        self.file_list = file_list
+        super(HecBenchDataset, self).__init__()
         self.device = device
+        self.file_list = file_list
 
     def __len__(self):
         return len(self.file_list)

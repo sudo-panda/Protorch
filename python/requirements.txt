@@ -1,6 +1,8 @@
 absl-py
 cxxfilt
 matplotlib
+scikit-learn
+sentence-transformers
 setuptools
 tensorboard
 torch
