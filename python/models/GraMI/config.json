@@ -128,9 +128,10 @@
         ],
         "variational": [
             { "Linear":     [8]   },
-            { "ReLU":       []     },
+            { "ReLU":       []    },
             { "LayerNorm":  [8]   },
-            { "Dropout":    [0.1]  }
+            { "Dropout":    [0.1] },
+            { "Linear":     [8]   }
         ],
         "stochastic": true
     },
@@ -144,10 +145,11 @@
             { "name": "SAGEConv", "out_channels": 16,   "activation": "relu" }
         ],
         "variational": [
-            { "Linear" : [8] },
-            { "ReLU": [] },
-            { "LayerNorm": [8] },
-            { "Dropout": [0.1] }
+            { "Linear":     [8]   },
+            { "ReLU":       []    },
+            { "LayerNorm":  [8]   },
+            { "Dropout":    [0.1] },
+            { "Linear":     [8]   }
         ],
         "stochastic": true
     }
