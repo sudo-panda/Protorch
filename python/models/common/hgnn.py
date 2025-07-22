@@ -1,3 +1,4 @@
+import torch
 import torch.nn as nn
 from torch_geometric.nn import HeteroConv, SAGEConv, GATConv, GATv2Conv, GCNConv
 
@@ -69,12 +70,14 @@ class HGNN(nn.Module):
 
         raise ValueError("No output dim found")
 
-    def get_output_shape(self, x_dict_shape):
-        x_dict_shape = {node: dim.clone() for node, dim in x_dict_shape.items()}
+    def get_output_shape(self, x_dict_shape_orig):
+        x_dict_shape = {node: dim for node, dim in x_dict_shape_orig.items()}
         for layer in reversed(self.layers):
             if isinstance(layer, HeteroConv):
                 for edge_type, conv in layer.convs.items():
                     dst = edge_type[2]
                     if dst in x_dict_shape:
-                        x_dict_shape[dst] = x_dict_shape[dst][0] + (int(conv.out_channels),)
+                        x_dict_shape[dst] = torch.Size([x_dict_shape[dst][0], int(conv.out_channels)])
+
+                break
         return x_dict_shape

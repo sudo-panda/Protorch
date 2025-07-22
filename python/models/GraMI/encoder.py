@@ -58,24 +58,24 @@ class GraMIAttributeEncoder(nn.Module):
         # Option 2: Adaptive Avg Pooling
         X_T_pooled = torch.stack([self.pool(x_T) for x_T in X_T], dim=0)
 
-        z_A = self.mlp(X_T_pooled)
+        n_A = self.mlp(X_T_pooled)
 
         if self.stochastic:
             eps = torch.randn_like(X_T_pooled)
 
-            z_eps = self.mlp_eps(eps)
+            n_eps = self.mlp_eps(eps)
 
-            z_A = z_A + z_eps
+            n_A = n_A + n_eps
 
         if self.variational:
-            z_A_mean = self.mlp_mean(z_A)
-            z_A_var  = self.mlp_var(z_A)
-            z_A = (z_A_mean, z_A_var)
+            n_A_mean = self.mlp_mean(n_A)
+            n_A_var  = self.mlp_var(n_A)
+            n_A = (n_A_mean, n_A_var)
 
 
         X_T_shape = [x_T.shape for x_T in X_T]
-        assert all([z.shape == self.get_output_shape(X_T_shape) for z in z_A]) if isinstance(z_A, tuple) else z_A.shape == self.get_output_shape(X_T_shape)
-        return z_A # (B, F, N)
+        assert all([z.shape == self.get_output_shape(X_T_shape) for z in n_A]) if isinstance(n_A, tuple) else n_A.shape == self.get_output_shape(X_T_shape)
+        return n_A # (B, F, N)
 
     def get_output_dim(self):
         if self.variational:
@@ -111,22 +111,22 @@ class GraMINodeEncoder(nn.Module):
             self.hgnn_eps = HGNN(config, edge_index_dict_shape).to(device)
 
     def forward(self, graph):
-        z_V = self.hgnn(graph.x_dict, graph.edge_index_dict)
+        n_V = self.hgnn(graph.x_dict, graph.edge_index_dict)
 
         if self.stochastic:
             eps = {node_name: torch.randn_like(x) for node_name, x in graph.x_dict.items()}
 
             hidden_eps = self.hgnn_eps(eps, graph.edge_index_dict)
 
-            z_V = {node_name: (z_V[node_name] + hidden_eps[node_name]) for node_name in z_V}
+            n_V = {node_name: (n_V[node_name] + hidden_eps[node_name]) for node_name in n_V}
 
         if self.variational:
-            z_V = {node_name: (self.mlp_mean(z), self.mlp_var(z)) for node_name, z in z_V.items()}
+            n_V = {node_name: (self.mlp_mean(z), self.mlp_var(z)) for node_name, z in n_V.items()}
 
-        output_data_shape = {node: ((z[0].shape, z[1].shape) if isinstance(z, tuple) else z.shape) for node, z in z_V.items()}
+        output_data_shape = {node: ((z[0].shape, z[1].shape) if isinstance(z, tuple) else z.shape) for node, z in n_V.items()}
         output_shape = self.get_output_shape({node: x.shape for node, x in graph.x_dict.items()})
         assert output_data_shape == output_shape, f"Output data shape mismatch: {output_data_shape} != {output_shape}"
-        return z_V
+        return n_V
 
     def get_output_dim(self):
         if self.variational:
@@ -159,7 +159,7 @@ class GraMIEncoder(nn.Module):
 
         self.node_order = list(data_shapes["x_dict"].keys())
 
-        self.transforms = Transforms(transforms)
+        self.transforms = Transforms(transforms, data_shapes["x_dict"])
         data_shapes["x_dict"] = self.transforms.get_output_shape(data_shapes["x_dict"])
 
         self.init_layers = GraMIInit(self.config["init"], data_shapes["x_dict"], device)
@@ -229,11 +229,11 @@ class GraMIEncoder(nn.Module):
         x_tile  = {k: v.clone() for k, v in graph.x_dict.items()}
 
         X_t = GraMIEncoder.get_X_t(graph, self.node_order)
-        z_A = self.attribute_encoder(X_t)
+        n_A = self.attribute_encoder(X_t)
 
-        z_V = self.node_encoder(graph)
+        n_V = self.node_encoder(graph)
 
-        return x, x_tile, z_A, z_V
+        return x, x_tile, n_A, n_V
 
     def get_output_dim(self):
         return self.attribute_encoder.get_output_dim()
@@ -242,11 +242,11 @@ class GraMIEncoder(nn.Module):
         x_shape = self.transforms.get_output_shape(data_shapes)
         x_tile_shape = self.init_layers.get_output_shape(data_shapes)
         X_t_shape = GraMIEncoder.get_X_t_shape(data_shapes, self.node_order)
-        z_A_shape = self.attribute_encoder.get_output_shape(X_t_shape)
-        z_V_shape = self.node_encoder.get_output_shape(x_shape)
+        n_A_shape = self.attribute_encoder.get_output_shape(X_t_shape)
+        n_V_shape = self.node_encoder.get_output_shape(x_shape)
         return {
             "x": x_shape,
             "x_tile": x_tile_shape,
-            "z_A": z_A_shape,
-            "z_V": z_V_shape
+            "n_A": n_A_shape,
+            "n_V": n_V_shape
         }

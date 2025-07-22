@@ -1,6 +1,6 @@
+from typing import Any
 from torch import nn
 import torch
-from models.common import Transforms
 from torch_geometric.data import HeteroData
 
 from models.GraMI.encoder import GraMIEncoder
@@ -23,7 +23,11 @@ class GraMIReparameterize(nn.Module):
             { node: GraMIReparameterize.reparameterize(z_v) for node, z_v in z_V.items()}
 
 class GraMI(nn.Module):
-    def __init__(self, config, data_shapes, device, batch_size):
+    def __init__(self, 
+                 config: dict[str, dict], 
+                 data_shapes: dict[str, dict], 
+                 device: str, 
+                 batch_size: int):
         super(GraMI, self).__init__()
         self.config = config
         self.device = device
@@ -39,13 +43,16 @@ class GraMI(nn.Module):
 
         if "decoder" not in self.config:
             self.decoder_config = GraMI.invert_config(self.config)
+            transforms_output_dim = self.encoder.transforms.get_output_dim()
+            for node, layers in self.decoder_config["mlp"].items():
+                layers.append({"Linear": [transforms_output_dim[node]]})
         else:
             self.decoder_config = self.config["decoder"]
 
         self.decoder = GraMIDecoder(self.decoder_config, data_shapes, self.device, self.batch_size)
 
     @staticmethod
-    def invert_config(config):
+    def invert_config(config: dict[str, dict]) -> dict[str, dict]:
         inverted_config = {
             "hgnn": GraMI.invert_hgnn_config(config["node_encoder"]["layers"]),
             "mlp": {node_name: GraMI.invert_mpl_config(node_config) for node_name, node_config in config["init"].items()},
@@ -53,7 +60,7 @@ class GraMI(nn.Module):
         return inverted_config
 
     @staticmethod
-    def invert_hgnn_config(config):
+    def invert_hgnn_config(config: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """
         config = [
             { "name": "SAGEConv", "out_channels": 1024, "activation": "relu" },
@@ -81,7 +88,7 @@ class GraMI(nn.Module):
         return inverted_config
 
     @staticmethod
-    def invert_mpl_config(config):
+    def invert_mpl_config(config: list[dict[str, list]]) -> list[dict[str, list]]:
         """
         config = [
             { "Linear":     [128] },
@@ -126,12 +133,11 @@ class GraMI(nn.Module):
         return inverted_config
 
     def forward(self, graph: HeteroData):
-        x, x_tile, z_A, z_V = self.encoder(graph)
+        x, x_tile, n_A, n_V = self.encoder(graph)
         
         if self.is_variational:
-            z_A, z_V = self.reparameterize(z_A, z_V)
+            z_A, z_V = self.reparameterize(n_A, n_V)
             
-        edge_logits, x_tile_rec, x_rec = \
-            self.decoder(z_A, z_V, graph.edge_index_dict,
-                         {node: graph[node].ptr for node in graph.x_dict.keys()})
-        return x, x_tile, z_A, z_V, edge_logits, x_tile_rec, x_rec
+        graph_ptr = {node: graph[node].ptr for node in graph.x_dict.keys()}
+        edge_logits, x_tile_rec, x_rec = self.decoder(z_A, z_V, graph.edge_index_dict, graph_ptr)
+        return x, x_tile, n_A, n_V, edge_logits, x_tile_rec, x_rec
