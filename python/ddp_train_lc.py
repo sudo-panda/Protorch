@@ -8,7 +8,7 @@ import os
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.tensorboard import SummaryWriter
 from torch.utils.data import DataLoader, DistributedSampler
-from utils.common import epochs, train_from_checkpoint, lr, decay, batch_size, world_size
+from utils.config import epochs, train_from_checkpoint, lr, decay, batch_size, world_size
 from dataset import HecBenchDataset
 from train import train_files, val_files, single_step
 import socket

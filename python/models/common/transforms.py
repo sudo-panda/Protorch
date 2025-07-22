@@ -11,7 +11,6 @@ class IdentityTransform(nn.Module):
     def __init__(self, input_shape):
         super(IdentityTransform, self).__init__()
         self.input_shape = input_shape
-        print("Init IdentityTransform")
 
     def forward(self, node, label):
         return node
@@ -31,7 +30,6 @@ class DigitEmbedTransform(nn.Module):
         super(DigitEmbedTransform, self).__init__()
         self.digit_embedding = digit_embedding
         self.input_shape = input_shape
-        print("Init DigitEmbedTransform")
 
     def forward(self, node, label):
         """
@@ -75,7 +73,6 @@ class DigitEmbedTransform(nn.Module):
 class TextEmbedTransform(nn.Module):
     def __init__(self, input_shape, model="jinaai/jina-embeddings-v2-base-code"):
         super(TextEmbedTransform, self).__init__()
-        print("Init TextEmbedTransform")
         self.input_shape = input_shape
 
         warnings.filterwarnings("ignore",
@@ -188,7 +185,7 @@ if __name__ == "__main__":
                              [32.,  4., 32.], [ 1.,  1.,  8.], [64.,  8., 64.], [32.,  4., 32.], 
                              [ 1.,  1.,  8.], [64.,  8., 64.], [32.,  4., 32.], [ 1.,  1.,  8.]]).to(device="cuda")
     size_labels = [['', '', ''], ['', '', ''], ['', '', ''], ['', '', '']]
-    digit_embed_transform = DigitEmbedTransform(10)
+    digit_embed_transform = DigitEmbedTransform(size_nodes.shape, 10)
     number_embeds = digit_embed_transform(number_nodes, number_labels)
     size_embeds = digit_embed_transform(size_nodes, size_labels)
 

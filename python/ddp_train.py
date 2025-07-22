@@ -8,10 +8,10 @@ import os
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.tensorboard import SummaryWriter
 from torch.utils.data import DataLoader, DistributedSampler
-from utils.common import epochs, get_data_shape, get_log_dir_name, train_from_checkpoint, lr, decay, batch_size, world_size
+from utils.common import get_data_shape, get_log_dir_name 
+from utils.config import epochs, train_from_checkpoint, lr, decay, batch_size, world_size
 from dataset import HecBenchDataset
 from train import train_files, val_files, single_step
-from models.GraMI.metrics import loss_fn, acc_fn
 from models.GraMI import GraMI
 
 from paths import GraMI_path, top_level_path

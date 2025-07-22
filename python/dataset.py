@@ -40,4 +40,6 @@ class DevmapDataset(Dataset):
         del data['module', 'symbol', 'value']
         del data['module']
 
-        return data, int(self.devmap_list[idx] == "GPU")
+        label = torch.Tensor([self.devmap_list[idx] == "GPU"]).to(device=self.device)
+
+        return data, label
