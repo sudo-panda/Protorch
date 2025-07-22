@@ -1,16 +1,10 @@
 import datetime
-from pathlib import Path
-import argparse
+import glob
+import re
 import socket
-import torch
-import yaml
-from torch_geometric.data import HeteroData
 
-script_path = Path(__file__)
-module_path = script_path.parent.parent.resolve()
-config_path = module_path / "config.yaml"
-models_path = module_path / "models"
-config_dict = None
+import torch
+from torch_geometric.data import HeteroData
 
 
 def get_data_shape(data: HeteroData):
@@ -29,15 +23,6 @@ def get_log_dir_name(model_name):
     log_dir_name = f"{timestamp}_{hostname}_{model_name}"
     return log_dir_name
 
-def get_config():
-    global config_dict
-
-    if config_dict is None:
-        with open(config_path, 'r') as file:
-            config_dict = yaml.safe_load(file)
-
-    return config_dict
-
 def get_adj_mat_from_edge_index(x_dict, edge_index_dict):
     adj_mat = {}
     for edge_typ, index in edge_index_dict.items():
@@ -46,15 +31,16 @@ def get_adj_mat_from_edge_index(x_dict, edge_index_dict):
 
     return adj_mat
 
-
-config = get_config()
-
-device = config["device"]
-epochs =  config["train"]["epochs"]
-train_from_checkpoint = config["train"]["train_from_checkpoint"]
-lr = config["train"]["learning_rate"]
-decay = config["train"]["weight_decay"]
-batch_size = config["train"]["batch_size"]
-
-if "world_size" in config["train"]:
-    world_size = config["train"]["world_size"]
+def find_latest_file(pattern="file_*.pt"):
+    files = glob.glob(pattern)
+    versioned = []
+    pattern = pattern.replace("*", "(\d+)")
+    for f in files:
+        m = re.match(pattern, f)
+        if m:
+            versioned.append((int(m.group(1)), f))
+    if not versioned:
+        return 0, None
+    # pick the tuple with the largest version
+    max_v = max(versioned, key= lambda t: t[0])
+    return max_v
