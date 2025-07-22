@@ -1,20 +1,32 @@
-from tqdm import tqdm
-from dataset import FunctionGraphDataset
-from torch_geometric.loader import DataLoader
-import glob, re
+import sys
+import json
+import glob
+import re
 from pathlib import Path
 
 import torch
 from torch.utils.tensorboard import SummaryWriter
+from torch_geometric.loader import DataLoader
 
-from utils.common import get_adj_mat_from_edge_index, device, epochs, get_log_dir_name, train_from_checkpoint, lr, decay, batch_size, parse_args
-from GraMI.metrics import loss_fn, acc_fn
-from GraMI.model import GraMIModel
-import sys
+from tqdm import tqdm
+from sklearn.model_selection import train_test_split
 
+from dataset import HecBenchDataset
+from utils.common import (
+    get_adj_mat_from_edge_index,
+    device,
+    epochs,
+    get_log_dir_name,
+    train_from_checkpoint,
+    lr,
+    decay,
+    batch_size,
+    get_data_shape,
+)
+from models.GraMI.metrics import loss_fn, acc_fn
+from models.GraMI import GraMI
 from paths import GraMI_path, top_level_path
 
-import sys
 
 file_list = list((top_level_path / "HecBench" / "heterodatas").glob("*.pt"))[:10]
 training_list = file_list[:int(len(file_list) * 0.6)]

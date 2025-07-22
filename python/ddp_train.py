@@ -10,7 +10,7 @@ from torch.utils.data import DataLoader, DistributedSampler
 from utils.common import epochs, get_log_dir_name, parse_args, train_from_checkpoint, lr, decay, batch_size, world_size
 from dataset import FunctionGraphDataset
 from train import training_list, validation_list, single_step
-from GraMI.metrics import loss_fn, acc_fn
+from models.GraMI.metrics import loss_fn, acc_fn
 from GraMI.model import GraMIModel
 
 from paths import GraMI_path, top_level_path

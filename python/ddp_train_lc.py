@@ -13,7 +13,7 @@ from dataset import FunctionGraphDataset
 import socket
 from pathlib import Path
 import sys
-from GraMI.metrics import loss_fn, acc_fn
+from models.GraMI.metrics import loss_fn, acc_fn
 from GraMI.model import GraMIModel
 
 from paths import GraMI_path, top_level_path
