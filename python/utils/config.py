@@ -1,26 +1,40 @@
-import yaml
 from pathlib import Path
+import yaml
+
+class DotConfig:
+    def __init__(self, data: dict, config_file: Path):
+        self.config_file = config_file
+        for k, v in data.items():
+            if isinstance(v, dict):
+                v = DotConfig(v, config_file)
+            setattr(self, k, v)
+
+    def __getitem__(self, key):
+        return getattr(self, key)
 
 
-script_path = Path(__file__)
-module_path = script_path.parent.parent.resolve()
-config_path = module_path / "config.yaml"
+def load_config(yaml_path: Path) -> DotConfig:
+    with open(yaml_path, 'r') as f:
+        config_dict = yaml.safe_load(f)
+    return DotConfig(config_dict, yaml_path)
 
-def get_config():
-    with open(config_path, 'r') as file:
-        config_dict = yaml.safe_load(file)
+def flatten_dict(d):
+    items = {}
+    for k, v in d.items():
+        new_key = k
+        if isinstance(v, dict):
+            items.update(flatten_dict(v))
+        else:
+            items[new_key] = v
+    return items
 
-    return config_dict
+def load_flat_config(yaml_path: Path) -> DotConfig:
+    with open(yaml_path, 'r') as f:
+        config_dict = yaml.safe_load(f)
+    flat_dict = flatten_dict(config_dict)
+    return DotConfig(flat_dict, yaml_path)
 
-config = get_config()
-
-device = config["device"]
-epochs =  config["train"]["epochs"]
-train_from_checkpoint = config["train"]["train_from_checkpoint"]
-lr = config["train"]["learning_rate"]
-decay = config["train"]["weight_decay"]
-batch_size = config["train"]["batch_size"]
-dataset = config["train"]["dataset"]
-
-if "world_size" in config["train"]:
-    world_size = config["train"]["world_size"]
+module_path = Path(__file__).parent.parent
+configs_dir = module_path / "configs"
+config_file = configs_dir / "config.yaml"
+cfg = None # load_flat_config(config_file)
