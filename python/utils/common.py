@@ -35,8 +35,7 @@ def get_timestamp():
 
 def get_log_dir_name(model_name):
     timestamp = get_timestamp()
-    hostname = socket.gethostname()
-    log_dir_name = f"{timestamp}_{hostname}_{model_name}"
+    log_dir_name = f"{timestamp}_{model_name}"
     return log_dir_name
 
 def get_adj_mat_from_edge_index(x_dict, edge_index_dict):
