@@ -63,17 +63,6 @@ def copy_model_arch_to_dir(model_arch_file: Union[str, Path], dest_dir: Union[st
 
     shutil.copy2(str(model_arch_file), str(dest_dir))
 
-def copy_config_to_dir(config_file: Union[str, Path], dest_dir: Union[str, Path]):
-    if isinstance(config_file, str):
-        config_file = Path(config_file)
-
-    if isinstance(dest_dir, str):
-        dest_dir = Path(dest_dir)
-
-    dest_dir.mkdir(exist_ok=True)
-    timestamp = datetime.datetime.now().strftime("%b%d_%H-%M-%S")
-    shutil.copy2(str(config_file), str(dest_dir / f"{config_file.stem}_{timestamp}.yaml"))
-
 def find_latest_file(pattern: str, directory: Path) -> Union[Path, None]:
     files = list(directory.glob(pattern))
     if not files:

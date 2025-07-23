@@ -20,8 +20,7 @@ from utils.common import (
     find_latest_wgts, 
     get_data_shape, 
     get_log_dir_name, 
-    copy_model_arch_to_dir, 
-    copy_config_to_dir,
+    copy_model_arch_to_dir,
     set_seed,
     get_timestamp
 )
