@@ -1,10 +1,16 @@
 import datetime
 import glob
 import re
+import shutil
 import socket
+from turtle import st
+from typing import Union
 
 import torch
 from torch_geometric.data import HeteroData
+from pathlib import Path
+
+from utils.paths import runs_dir
 
 
 def get_data_shape(data: HeteroData):
@@ -31,16 +37,18 @@ def get_adj_mat_from_edge_index(x_dict, edge_index_dict):
 
     return adj_mat
 
-def find_latest_file(pattern="file_*.pt"):
-    files = glob.glob(pattern)
-    versioned = []
-    pattern = pattern.replace("*", "(\d+)")
-    for f in files:
-        m = re.match(pattern, f)
-        if m:
-            versioned.append((int(m.group(1)), f))
-    if not versioned:
-        return 0, None
-    # pick the tuple with the largest version
-    max_v = max(versioned, key= lambda t: t[0])
-    return max_v
+def find_latest_run_dir(model_name) -> Union[Path, None]:
+    dirs = runs_dir.glob(f"*{model_name}")
+    latest = max(dirs, key=lambda d: d.stat().st_mtime, default=None)
+    return latest
+
+def find_latest_wgts(run_dir: Path, model_name: str) -> Union[Path, None]:
+    files = run_dir.glob(f"{model_name}_*.pt")
+    latest = max(files, key=lambda f: f.stat().st_mtime, default=None)
+    return latest
+
+def copy_configs_to_dir(config_files: list[Union[str, Path]], dest_dir: Union[str, Path]):
+    Path(str(dest_dir)).mkdir(exist_ok=True)
+
+    for config_file in config_files:
+        shutil.copy2(str(config_file), str(dest_dir))
