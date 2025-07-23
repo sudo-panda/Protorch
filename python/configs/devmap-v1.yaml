@@ -1,0 +1,11 @@
+device: cuda
+model_name: Devmap-512-8-CLS
+train:
+  dataset: devmap
+  epochs: 1000
+  batch_size: 16
+  world_size: 2
+  learning_rate: 0.001
+  weight_decay: 0.0001
+  train_from_checkpoint: false
+
