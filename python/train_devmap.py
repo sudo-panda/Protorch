@@ -74,7 +74,7 @@ def load_model(model_name, data_shapes, cfg):
         assert run_dir.is_dir(), f"Expected run_dir ({run_dir}) to be a folder"
 
         model_arch_file = run_dir / f"{model_name}.json"
-        print(f"Found existing run directory:\n  {run_dir}\n with model architecture file {model_arch_file.name}")
+        print(f"Found existing run directory:\n\t{run_dir}\n\twith model architecture file {model_arch_file.name}")
         pretrained_weights_file = find_latest_wgts(run_dir, model_name)
     else:
         # New training run
@@ -88,15 +88,13 @@ def load_model(model_name, data_shapes, cfg):
     cfg.save(run_dir / f"config_{get_timestamp()}.yaml")
 
     with open(model_arch_file) as f:
-        Devmap_config = json.load(f)
-
-    model_config = Devmap_config
+        model_config = json.load(f)
 
     model = DevmapModel(model_config, data_shapes, device, batch_size)
 
     start_epoch = 0
-    if pretrained_weights_file is not None and Path(pretrained_weights_file).exists():
-        print(f"Loading pretrained weights from {pretrained_weights_file}")
+    if pretrained_weights_file is not None and pretrained_weights_file.exists():
+        print(f"Loading pretrained weights from {pretrained_weights_file.name}")
 
         # with torch.serialization.safe_globals([torch.nn.parameter.UninitializedParameter]):
         model.load_state_dict(torch.load(pretrained_weights_file), strict=True)
