@@ -15,8 +15,17 @@ from torch_geometric.loader import DataLoader
 
 from utils.paths import top_level_path, runs_dir
 from dataset import DevmapDataset
-from utils.common import find_latest_run_dir, find_latest_wgts, get_data_shape, get_log_dir_name, copy_configs_to_dir
-from utils.config import cfg, load_flat_config, configs_dir
+from utils.common import (
+    find_latest_run_dir, 
+    find_latest_wgts, 
+    get_data_shape, 
+    get_log_dir_name, 
+    copy_model_arch_to_dir, 
+    copy_config_to_dir,
+    set_seed,
+    get_timestamp
+)
+from utils.config import cfg, load_config, configs_dir
 from models.Devmap import DevmapModel
 
 os.environ["HF_HOME"] = str(top_level_path.parent / "hf")
@@ -28,7 +37,7 @@ def single_step(model, batch, labels, loss_fn):
     acc = ((probs >= 0.5).to(torch.int32) == labels).float().mean()
     return loss, acc
 
-def load_data(dataset, device, batch_size):
+def load_data(dataset, device, batch_size, seed=42):
     ################ Load data ################
     dataset_dir = top_level_path / dataset
     assert dataset_dir.exists() and dataset_dir.is_dir(), f"Dataset directory {dataset_dir} does not exist. Please check the dataset name: {dataset}"
@@ -44,8 +53,8 @@ def load_data(dataset, device, batch_size):
     file_list = df["file_path"].tolist()
     devmap_list = df["device"].tolist()[:len(file_list)]
 
-    train_files, temp_files, train_devmap, temp_devmap = train_test_split(file_list,  devmap_list, test_size=0.4, random_state=42)
-    val_files,   test_files, val_devmap,   test_devmap = train_test_split(temp_files, temp_devmap, test_size=0.5, random_state=42)
+    train_files, temp_files, train_devmap, temp_devmap = train_test_split(file_list,  devmap_list, test_size=0.4, random_state=seed)
+    val_files,   test_files, val_devmap,   test_devmap = train_test_split(temp_files, temp_devmap, test_size=0.5, random_state=seed)
 
     train_dataloader = DataLoader(DevmapDataset(train_files, train_devmap, device=device), batch_size=batch_size, shuffle=True)
     val_dataloader   = DataLoader(DevmapDataset(val_files,   val_devmap,   device=device), batch_size=batch_size, shuffle=False)
@@ -54,7 +63,7 @@ def load_data(dataset, device, batch_size):
     return train_dataloader, val_dataloader, test_dataloader
 
 def load_model(model_name, data_shapes, cfg):
-    config_file, device, batch_size, train_from_checkpoint = cfg.config_file, cfg.device, cfg.batch_size, cfg.train_from_checkpoint
+    device, batch_size, train_from_checkpoint = cfg.device, cfg.batch_size, cfg.train_from_checkpoint
 
     run_dir = None
     pretrained_weights_file = None
@@ -66,12 +75,13 @@ def load_model(model_name, data_shapes, cfg):
         assert run_dir.is_dir(), f"Expected run_dir ({run_dir}) to be a folder"
         model_arch_file = run_dir / f"{model_name}.json"
         pretrained_weights_file = find_latest_wgts(run_dir, model_name)
-        copy_configs_to_dir([config_file], run_dir)
     else:
         # New training run
         run_dir = runs_dir / get_log_dir_name(model_name)
         model_arch_file = configs_dir / f"{model_name}.json"
-        copy_configs_to_dir([model_arch_file, config_file], run_dir)
+        copy_model_arch_to_dir(model_arch_file, run_dir)
+
+    cfg.save(run_dir / f"config_{get_timestamp()}.yaml")
 
     with open(model_arch_file) as f:
         Devmap_config = json.load(f)
@@ -104,14 +114,14 @@ def main(cfg):
         cfg.epochs, cfg.learning_rate, cfg.weight_decay)          # type: ignore
 
 
-    train_dataloader, val_dataloader, test_dataloader = load_data(dataset, device, batch_size)
+    train_dataloader, val_dataloader, test_dataloader = load_data(dataset, device, batch_size, seed=cfg.seed)
     data_sample, label = next(iter(train_dataloader))
     data_shapes = get_data_shape(data_sample)
 
     model, start_epoch, run_dir = load_model(model_name, data_shapes, cfg)
 
     criterion = nn.BCELoss()
-    optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=decay)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=decay)
     writer = SummaryWriter(log_dir=run_dir)
 
     for i in range(start_epoch, epochs):
@@ -164,6 +174,10 @@ if __name__ == "__main__":
     parser.add_argument("--config", type=str, required=True)
     args = parser.parse_args()
 
-    if args.config:
-        cfg = load_flat_config(configs_dir / f"{args.config}.yaml")
+
+    # if args.config:
+    cfg = load_config(configs_dir / f"{args.config}.yaml", flatten=True)
+
+    set_seed(cfg.seed)
+
     main(cfg)

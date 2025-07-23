@@ -1,17 +1,23 @@
 import datetime
-import glob
-import re
 import shutil
 import socket
-from turtle import st
 from typing import Union
 
+import random
+import numpy as np
 import torch
 from torch_geometric.data import HeteroData
 from pathlib import Path
 
 from utils.paths import runs_dir
 
+
+def set_seed(seed):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
 
 def get_data_shape(data: HeteroData):
     get_x_dict_shape = lambda x_dict : {key: value.shape for key, value in x_dict.items()}
@@ -23,8 +29,12 @@ def get_data_shape(data: HeteroData):
     
     return {"x_dict": x_dict_shape, "edge_index_dict": edge_index_shape, "ptr": ptr}
 
-def get_log_dir_name(model_name):
+def get_timestamp():
     timestamp = datetime.datetime.now().strftime("%b%d_%H-%M-%S")
+    return timestamp
+
+def get_log_dir_name(model_name):
+    timestamp = get_timestamp()
     hostname = socket.gethostname()
     log_dir_name = f"{timestamp}_{hostname}_{model_name}"
     return log_dir_name
@@ -47,8 +57,26 @@ def find_latest_wgts(run_dir: Path, model_name: str) -> Union[Path, None]:
     latest = max(files, key=lambda f: f.stat().st_mtime, default=None)
     return latest
 
-def copy_configs_to_dir(config_files: list[Union[str, Path]], dest_dir: Union[str, Path]):
+
+def copy_model_arch_to_dir(model_arch_file: Union[str, Path], dest_dir: Union[str, Path]):
     Path(str(dest_dir)).mkdir(exist_ok=True)
 
-    for config_file in config_files:
-        shutil.copy2(str(config_file), str(dest_dir))
+    shutil.copy2(str(model_arch_file), str(dest_dir))
+
+def copy_config_to_dir(config_file: Union[str, Path], dest_dir: Union[str, Path]):
+    if isinstance(config_file, str):
+        config_file = Path(config_file)
+
+    if isinstance(dest_dir, str):
+        dest_dir = Path(dest_dir)
+
+    dest_dir.mkdir(exist_ok=True)
+    timestamp = datetime.datetime.now().strftime("%b%d_%H-%M-%S")
+    shutil.copy2(str(config_file), str(dest_dir / f"{config_file.stem}_{timestamp}.yaml"))
+
+def find_latest_file(pattern: str, directory: Path) -> Union[Path, None]:
+    files = list(directory.glob(pattern))
+    if not files:
+        return None
+    latest_file = max(files, key=lambda f: f.stat().st_mtime)
+    return latest_file
