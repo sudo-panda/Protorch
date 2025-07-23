@@ -28,7 +28,7 @@ from utils.config import (
 )
 from models.GraMI.metrics import loss_fn, acc_fn
 from models.GraMI import GraMI
-from paths import GraMI_path, GraMI_wgts_dir, top_level_path
+from utils.paths import GraMI_path, GraMI_wgts_dir, top_level_path
 
 
 file_list = list((top_level_path / "HecBench" / "heterodatas").glob("*.pt"))

@@ -14,7 +14,7 @@ from dataset import HecBenchDataset
 from train import train_files, val_files, single_step
 from models.GraMI import GraMI
 
-from paths import GraMI_path, top_level_path
+from utils.paths import GraMI_path, top_level_path
 
 def task(rank, world_size):
     dist.init_process_group("nccl", rank=rank, world_size=world_size)

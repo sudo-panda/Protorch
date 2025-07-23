@@ -17,7 +17,7 @@ import sys
 from models.GraMI.metrics import loss_fn, acc_fn
 from models.GraMI import GraMI
 
-from paths import GraMI_path
+from utils.paths import GraMI_path
 
 
 class System():
