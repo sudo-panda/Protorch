@@ -72,12 +72,17 @@ def load_model(model_name, data_shapes, cfg):
     if run_dir is not None: 
         # Found existing run directory
         assert run_dir.is_dir(), f"Expected run_dir ({run_dir}) to be a folder"
+
         model_arch_file = run_dir / f"{model_name}.json"
+        print(f"Found existing run directory:\n  {run_dir}\n with model architecture file {model_arch_file.name}")
         pretrained_weights_file = find_latest_wgts(run_dir, model_name)
     else:
         # New training run
         run_dir = runs_dir / get_log_dir_name(model_name)
         model_arch_file = configs_dir / f"{model_name}.json"
+
+        print(f"Creating new run directory {run_dir} with model architecture file {model_arch_file.name}")
+        run_dir.mkdir(parents=True, exist_ok=True)
         copy_model_arch_to_dir(model_arch_file, run_dir)
 
     cfg.save(run_dir / f"config_{get_timestamp()}.yaml")
@@ -89,11 +94,10 @@ def load_model(model_name, data_shapes, cfg):
 
     model = DevmapModel(model_config, data_shapes, device, batch_size)
 
-    print(model_name)
-
-
     start_epoch = 0
     if pretrained_weights_file is not None and Path(pretrained_weights_file).exists():
+        print(f"Loading pretrained weights from {pretrained_weights_file}")
+
         # with torch.serialization.safe_globals([torch.nn.parameter.UninitializedParameter]):
         model.load_state_dict(torch.load(pretrained_weights_file), strict=True)
         
@@ -112,6 +116,8 @@ def main(cfg):
         cfg.device, cfg.model_name, cfg.dataset, cfg.batch_size,  # type: ignore
         cfg.epochs, cfg.learning_rate, cfg.weight_decay)          # type: ignore
 
+    print(f"Training {model_name} on {dataset}")
+    print(f"  epochs: {epochs}\n  batch size: {batch_size}\n  learning rate: {lr}\n  weight decay: {decay}")
 
     train_dataloader, val_dataloader, test_dataloader = load_data(dataset, device, batch_size, seed=cfg.seed)
     data_sample, label = next(iter(train_dataloader))
@@ -160,7 +166,7 @@ def main(cfg):
         writer.add_scalar("Loss/val", tot_val_loss / index_val, i)
         writer.add_scalar("Acc/val", tot_val_acc / index_val, i)
 
-        print(f"     |  Train  |  Valid  |")
+        print(f"{i:>4d} |  Train  |  Valid  |")
         print(f"Loss | {tot_train_loss / index_train:7.4f} | {tot_val_loss / index_val:7.4f} |")
         print(f"Acc  | {tot_train_acc / index_train:7.4f} | {tot_val_acc / index_val:7.4f} |")
 
@@ -175,8 +181,12 @@ if __name__ == "__main__":
 
 
     # if args.config:
-    cfg = load_config(configs_dir / f"{args.config}.yaml", flatten=True)
+    config_path = configs_dir / f"{args.config}.yaml"
+    print(f"Loading config from {config_path}")
+    assert config_path.exists(), f"Config file {config_path} does not exist. Please check the config name."
+    cfg = load_config(config_path, flatten=True)
 
     set_seed(cfg.seed)
 
     main(cfg)
+    print(f"Done")
