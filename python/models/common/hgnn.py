@@ -47,10 +47,17 @@ class HGNN(nn.Module):
             out_ch = layer_cfg["out_channels"]
             act_name = layer_cfg.get("activation", "relu")
 
+            del layer_cfg["name"]
+            del layer_cfg["out_channels"]
+            del layer_cfg["activation"]
+
+            if conv_name in ["GATConv", "GATv2Conv"]:
+                layer_cfg["add_self_loops"] = layer_cfg.get("add_self_loops", False)
+
             conv_cls = self.hetero_conv_map[conv_name]
             # Build edge-specific convs with inferred input dims
             convs = {
-                edge_type: conv_cls((-1, -1), out_ch)
+                edge_type: conv_cls((-1, -1), out_ch, **layer_cfg)
                 for edge_type in self.edge_types
             }
 
