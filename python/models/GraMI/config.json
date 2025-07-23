@@ -1,5 +1,4 @@
 {
-    "model_name": "GraMI-512-8-VAE",
     "transforms": {
         "instruction": "None",
         "value": "None",

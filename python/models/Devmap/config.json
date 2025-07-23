@@ -1,5 +1,4 @@
 {
-    "model_name": "Devmap-512-8-CLS",
     "transforms": {
         "instruction": "None",
         "value": "None",
