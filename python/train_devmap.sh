@@ -5,7 +5,7 @@
 #flux: -t 6h
 #flux: --job-name=devmap_train
 #flux: --output=logs/flux-{{id.dec}}-out.log
-#flux: --output=logs/flux-{{id.dec}}-err.log
+#flux: --error=logs/flux-{{id.dec}}-err.log
 set -eo pipefail
 
 echo "START TIME: $(date)"

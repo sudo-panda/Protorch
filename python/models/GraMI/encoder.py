@@ -21,8 +21,8 @@ class GraMIInit(nn.Module):
             out_dict[node_name] = layer(x_dict[node_name])
         return out_dict
 
-    def get_output_shape(self, x_dict_shape):
-        return {node_name: layer.get_output_shape(x_dict_shape[node_name])
+    def get_output_shape(self, x_dict_shape: dict[str, torch.Size]):
+        return {node_name: layer.get_output_shape(x_dict_shape[node_name]) # type: ignore 
                 for node_name, layer in self.layer_dict.items()}
 
 class GraMIAttributeEncoder(nn.Module):
