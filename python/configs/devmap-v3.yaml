@@ -1,5 +1,5 @@
 device: cuda
-model_name: Devmap-512-8-CLS
+model_name: Devmap-512-8-CLS-small
 seed: 42
 train:
   dataset: devmap

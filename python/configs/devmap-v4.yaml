@@ -1,5 +1,5 @@
 device: cuda
-model_name: Devmap-512-8-CLS
+model_name: Devmap-512-8-CLS-small-time
 seed: 42
 train:
   dataset: devmap
@@ -8,5 +8,5 @@ train:
   world_size: 2
   learning_rate: 0.001
   weight_decay: 0.0001
-  train_from_checkpoint: true
+  train_from_checkpoint: false
 
