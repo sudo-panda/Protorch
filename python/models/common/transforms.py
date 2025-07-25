@@ -81,8 +81,10 @@ class TextEmbedTransform(nn.Module):
         self.model = SentenceTransformer(model, trust_remote_code=True)
 
     def forward(self, node, labels):
-        if isinstance(labels, list) and all(isinstance(item, list) for item in labels):
-            all_labels = sum(labels, [])
+        assert isinstance(labels, list) and all(isinstance(item, list) for item in labels)
+
+        all_labels = sum(labels, [])
+        
         return self.model.encode(
                 all_labels,
                 convert_to_tensor=True,
@@ -124,13 +126,13 @@ class Transforms(nn.Module):
     
     def get_output_dim(self):
         return {
-            name: transform.get_embedding_dim() 
+            name: transform.get_embedding_dim() # type: ignore
             for name, transform in self.transforms.items()
         }
 
     def get_output_shape(self, x_shapes):
         return { 
-            name: transform.get_output_shape(x_shapes[name]) 
+            name: transform.get_output_shape(x_shapes[name]) # type: ignore
             for name, transform in self.transforms.items() 
         }
 

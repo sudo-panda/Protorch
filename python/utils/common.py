@@ -62,7 +62,7 @@ def copy_model_arch_to_dir(model_arch_file: Union[str, Path], dest_dir: Union[st
 
     shutil.copy2(str(model_arch_file), str(dest_dir))
 
-def find_latest_file(pattern: str, directory: Path) -> Union[Path, None]:
+def find_latest_file(directory: Path, pattern: str) -> Union[Path, None]:
     files = list(directory.glob(pattern))
     if not files:
         return None
