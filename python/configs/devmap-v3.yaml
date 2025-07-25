@@ -5,6 +5,7 @@ train:
   dataset: devmap
   epochs: 1000
   batch_size: 16
+  optimizer: AdamW
   world_size: 2
   learning_rate: 0.001
   weight_decay: 0.0001

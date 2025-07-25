@@ -1,12 +1,14 @@
 import argparse
+import pickle
 import os
 import json
-from pathlib import Path
 from tqdm import tqdm
 
 import pandas as pd
 from sklearn.model_selection import train_test_split
 
+import random
+import numpy as np
 import torch
 import torch.nn as nn
 from torch.utils.tensorboard import SummaryWriter
@@ -22,7 +24,8 @@ from utils.common import (
     get_log_dir_name, 
     copy_model_arch_to_dir,
     set_seed,
-    get_timestamp
+    get_timestamp,
+    find_latest_file
 )
 from utils.config import cfg, load_config, configs_dir
 from models.Devmap import DevmapModel
@@ -62,20 +65,21 @@ def load_data(dataset, device, batch_size, seed=42):
     return train_dataloader, val_dataloader, test_dataloader
 
 def load_model(model_name, data_shapes, cfg):
-    device, batch_size, train_from_checkpoint = cfg.device, cfg.batch_size, cfg.train_from_checkpoint
+    train_from_checkpoint = cfg.train_from_checkpoint
 
     run_dir = None
     pretrained_weights_file = None
     if train_from_checkpoint:
         run_dir = find_latest_run_dir(model_name)
 
+    save_file = None
     if run_dir is not None: 
         # Found existing run directory
         assert run_dir.is_dir(), f"Expected run_dir ({run_dir}) to be a folder"
 
         model_arch_file = run_dir / f"{model_name}.json"
         print(f"Found existing run directory:\n\t{run_dir}\n\twith model architecture file {model_arch_file.name}")
-        pretrained_weights_file = find_latest_wgts(run_dir, model_name)
+        save_file = find_latest_wgts(run_dir, model_name)
     else:
         # New training run
         run_dir = runs_dir / get_log_dir_name(model_name)
@@ -85,29 +89,75 @@ def load_model(model_name, data_shapes, cfg):
         run_dir.mkdir(parents=True, exist_ok=True)
         copy_model_arch_to_dir(model_arch_file, run_dir)
 
-    cfg.save(run_dir / f"config_{get_timestamp()}.yaml")
 
     with open(model_arch_file) as f:
         model_config = json.load(f)
 
+    device, batch_size = cfg.device, cfg.batch_size
     model = DevmapModel(model_config, data_shapes, device, batch_size)
 
-    start_epoch = 0
-    if pretrained_weights_file is not None and pretrained_weights_file.exists():
-        print(f"Loading pretrained weights from {pretrained_weights_file.name}")
+    criterion = nn.BCELoss()
 
-        # with torch.serialization.safe_globals([torch.nn.parameter.UninitializedParameter]):
-        model.load_state_dict(torch.load(pretrained_weights_file), strict=True)
-        
-        # Extract epoch number from the checkpoint filename, e.g., "modelname_123.pt"
+    opt_name, lr, decay = cfg.optimizer, cfg.learning_rate, cfg.weight_decay
+    if opt_name == "AdamW":
+        optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=decay)
+    elif opt_name == "Adam":
+        optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=decay)
+    else:
+        raise NotImplementedError(f"Optimizer {opt_name} is not implemented")
+
+    scheduler = None
+    scaler = None
+    valid_acc = None
+
+    start_epoch = 0
+    if save_file is not None and save_file.exists():
+        print(f"Loading pretrained weights from {save_file.name}")
         try:
-            start_epoch = int(pretrained_weights_file.stem.split("_")[-1])
-        except (ValueError, AttributeError):
-            pass
+            saved_state = torch.load(save_file, map_location=device)
+        except pickle.UnpicklingError:
+            saved_state = torch.load(save_file, map_location=device, weights_only=False)
+
+        pretrained_weights_file = saved_state["model"]
+        model.load_state_dict(pretrained_weights_file, strict=True)
+
+        prev_config_file = find_latest_file(run_dir, "config_*.yaml")
+        assert prev_config_file is not None, f"Previous config file not found in run_dir:\n\t{run_dir}"
+        prev_cfg = load_config(prev_config_file)
+
+        assert prev_cfg.seed == cfg.seed, f"Previous seed {prev_cfg.seed} does not match current seed {cfg.seed}"
+
+        if prev_cfg.learning_rate == lr and prev_cfg.weight_decay == decay and prev_cfg.optimizer == opt_name:
+            optimizer_state = saved_state["optimizer"]
+            # Load optimizer state
+            optimizer.load_state_dict(optimizer_state)
+            for state in optimizer.state.values():
+                for k, v in state.items():
+                    if isinstance(v, torch.Tensor):
+                        state[k] = v.to(device)
+        else:
+            print(f"Warning: Optimizer args in previous config differs from current config\n"
+                  f"   previous: {prev_cfg.optimizer}, {prev_cfg.learning_rate}, {prev_cfg.weight_decay}\n"
+                  f"   current: {opt_name}, {lr}, {decay}\n"
+                  f"Creating new optimizer state . . .")
+
+        start_epoch = saved_state["epoch"]
+        valid_acc = saved_state["valid_acc"]
+
+        torch.set_rng_state(saved_state["rng_state"]["torch"].clone().type(torch.ByteTensor))
+        torch.cuda.set_rng_state_all([s.clone().type(torch.ByteTensor) for s in saved_state["rng_state"]["cuda"]])
+        if "numpy_seed" in saved_state["rng_state"]:
+            np.random.seed(saved_state["rng_state"]["numpy_seed"])
+            random.seed(saved_state["rng_state"]["python_seed"])
+        else:
+            np.random.set_state(saved_state["rng_state"]["numpy"])
+            random.setstate(saved_state["rng_state"]["python"])
 
     model.to(device)
 
-    return model, start_epoch, run_dir
+    cfg.save(run_dir / f"config_{get_timestamp()}.yaml")
+
+    return model, optimizer, criterion, scheduler, scaler, start_epoch, valid_acc, run_dir
 
 def main(cfg):
     device, model_name, dataset, batch_size, epochs, lr, decay = (
@@ -121,11 +171,9 @@ def main(cfg):
     data_sample, label = next(iter(train_dataloader))
     data_shapes = get_data_shape(data_sample)
 
-    model, start_epoch, run_dir = load_model(model_name, data_shapes, cfg)
-
-    criterion = nn.BCELoss()
-    optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=decay)
+    model, optimizer, criterion, scheduler, scaler, start_epoch, best_valid_acc, run_dir = load_model(model_name, data_shapes, cfg)
     writer = SummaryWriter(log_dir=run_dir)
+    print(f"  Best Valid Acc: {best_valid_acc}")
 
     for i in range(start_epoch, epochs):
         index_train = 0
@@ -156,17 +204,41 @@ def main(cfg):
                 tot_val_acc  += acc.item() * batch.batch_size
                 index_val    += batch.batch_size
 
-        if i % 10 == 0 and i != 0:
-            torch.save(model.state_dict(), run_dir / f"{model_name}_{i}.pt")
+        mean_train_loss = tot_train_loss / index_train
+        mean_train_acc  = tot_train_acc / index_train
+        mean_val_loss   = tot_val_loss / index_val
+        mean_val_acc    = tot_val_acc / index_val
 
-        writer.add_scalar("Loss/train", tot_train_loss / index_train, i)
-        writer.add_scalar("Acc/train", tot_train_acc / index_train, i)
-        writer.add_scalar("Loss/val", tot_val_loss / index_val, i)
-        writer.add_scalar("Acc/val", tot_val_acc / index_val, i)
+        if best_valid_acc is None or mean_val_acc > best_valid_acc:
+            torch.save(
+                {
+                    "model": model.state_dict(),
+                    "optimizer": optimizer.state_dict(),  # optional if changing later
+                    "epoch": i,
+                    "valid_acc": mean_val_acc,
+                    "scheduler": scheduler.state_dict() if scheduler else None,
+                    "scaler": scaler.state_dict() if scaler else None,
+                    "rng_state": {
+                        "torch": torch.get_rng_state(),
+                        "cuda": torch.cuda.get_rng_state_all(),
+                        "numpy_seed": np.random.get_state()[1][0],
+                        "python_seed": random.getstate()[1][0],
+                    }
+                },
+                run_dir / f"{model_name}_{get_timestamp()}.pt"
+            )
+            assert False, f"Everything seems to be in place Train Acc: {mean_train_acc}, Valid Acc: {mean_val_acc}"
+
+            best_valid_acc = mean_val_acc
+
+        writer.add_scalar("Loss/train", mean_train_loss, i)
+        writer.add_scalar("Acc/train", mean_train_acc, i)
+        writer.add_scalar("Loss/val", mean_val_loss, i)
+        writer.add_scalar("Acc/val", mean_val_acc, i)
 
         print(f"{i:>4d} |  Train  |  Valid  |")
-        print(f"Loss | {tot_train_loss / index_train:7.4f} | {tot_val_loss / index_val:7.4f} |")
-        print(f"Acc  | {tot_train_acc / index_train:7.4f} | {tot_val_acc / index_val:7.4f} |")
+        print(f"Loss | {mean_train_loss:7.4f} | {mean_val_loss:7.4f} |")
+        print(f"Acc  | {mean_train_acc:7.4f} | {mean_val_acc:7.4f} |")
 
         writer.flush()
 
