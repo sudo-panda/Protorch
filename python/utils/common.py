@@ -57,10 +57,10 @@ def find_latest_wgts(run_dir: Path, model_name: str) -> Union[Path, None]:
     return latest
 
 
-def copy_model_arch_to_dir(model_arch_file: Union[str, Path], dest_dir: Union[str, Path]):
+def copy_file_to_dir(file: Union[str, Path], dest_dir: Union[str, Path]):
     Path(str(dest_dir)).mkdir(exist_ok=True)
 
-    shutil.copy2(str(model_arch_file), str(dest_dir))
+    shutil.copy2(str(file), str(dest_dir))
 
 def find_latest_file(directory: Path, pattern: str) -> Union[Path, None]:
     files = list(directory.glob(pattern))

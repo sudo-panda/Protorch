@@ -22,7 +22,7 @@ from utils.common import (
     find_latest_wgts, 
     get_data_shape, 
     get_log_dir_name, 
-    copy_model_arch_to_dir,
+    copy_file_to_dir,
     set_seed,
     get_timestamp,
     find_latest_file
@@ -66,28 +66,29 @@ def load_data(dataset, device, batch_size, seed=42):
 
 def load_model(model_name, data_shapes, cfg):
     train_from_checkpoint = cfg.train_from_checkpoint
+    run_dir = runs_dir / get_log_dir_name(model_name)
 
-    run_dir = None
+    prev_run_dir = None
     pretrained_weights_file = None
     if train_from_checkpoint:
-        run_dir = find_latest_run_dir(model_name)
+        prev_run_dir = find_latest_run_dir(model_name)
 
     save_file = None
-    if run_dir is not None: 
+    if prev_run_dir is not None: 
         # Found existing run directory
-        assert run_dir.is_dir(), f"Expected run_dir ({run_dir}) to be a folder"
+        assert prev_run_dir.is_dir(), f"Expected run_dir ({prev_run_dir}) to be a folder"
 
-        model_arch_file = run_dir / f"{model_name}.json"
-        print(f"Found existing run directory:\n\t{run_dir}\n\twith model architecture file {model_arch_file.name}")
-        save_file = find_latest_wgts(run_dir, model_name)
+        model_arch_file = prev_run_dir / f"{model_name}.json"
+        print(f"Found existing run directory:\n\t{prev_run_dir}\n\twith model architecture file {model_arch_file.name}")
+        save_file = find_latest_wgts(prev_run_dir, model_name)
+        copy_file_to_dir(model_arch_file, run_dir)
     else:
         # New training run
-        run_dir = runs_dir / get_log_dir_name(model_name)
         model_arch_file = configs_dir / f"{model_name}.json"
 
         print(f"Creating new run directory {run_dir} with model architecture file {model_arch_file.name}")
         run_dir.mkdir(parents=True, exist_ok=True)
-        copy_model_arch_to_dir(model_arch_file, run_dir)
+        copy_file_to_dir(model_arch_file, run_dir)
 
 
     with open(model_arch_file) as f:
@@ -121,8 +122,8 @@ def load_model(model_name, data_shapes, cfg):
         pretrained_weights_file = saved_state["model"]
         model.load_state_dict(pretrained_weights_file, strict=True)
 
-        prev_config_file = find_latest_file(run_dir, "config_*.yaml")
-        assert prev_config_file is not None, f"Previous config file not found in run_dir:\n\t{run_dir}"
+        prev_config_file = find_latest_file(prev_run_dir, "config*.yaml")
+        assert prev_config_file is not None, f"Config file not found in prev run dir:\n\t{prev_run_dir}"
         prev_cfg = load_config(prev_config_file)
 
         assert prev_cfg.seed == cfg.seed, f"Previous seed {prev_cfg.seed} does not match current seed {cfg.seed}"
@@ -141,6 +142,8 @@ def load_model(model_name, data_shapes, cfg):
                   f"   current: {opt_name}, {lr}, {decay}\n"
                   f"Creating new optimizer state . . .")
 
+        prev_cfg.save(run_dir / f"config_{prev_run_dir.name}.yaml")
+
         start_epoch = saved_state["epoch"]
         valid_acc = saved_state["valid_acc"]
 
@@ -155,7 +158,7 @@ def load_model(model_name, data_shapes, cfg):
 
     model.to(device)
 
-    cfg.save(run_dir / f"config_{get_timestamp()}.yaml")
+    cfg.save(run_dir / f"config.yaml")
 
     return model, optimizer, criterion, scheduler, scaler, start_epoch, valid_acc, run_dir
 
@@ -227,7 +230,6 @@ def main(cfg):
                 },
                 run_dir / f"{model_name}_{get_timestamp()}.pt"
             )
-            assert False, f"Everything seems to be in place Train Acc: {mean_train_acc}, Valid Acc: {mean_val_acc}"
 
             best_valid_acc = mean_val_acc
 
