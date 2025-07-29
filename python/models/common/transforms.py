@@ -4,15 +4,31 @@ import torch.nn as nn
 
 from sentence_transformers import SentenceTransformer
 
+# Ideally should come from the digit_embeddings module, but to avoid llvm dependency issues, we define it here.
+# from mltraining.digit_embeddings import get_embedding_from_lookup_output, feat_count
 
-from utils.digit_embeddings import get_digit_emb_of_number, feat_count
+feat_count = 12000000
+
+def get_embedding_from_lookup_output(token_ids_tensor, embeds):
+    embedded = embeds(token_ids_tensor)  # shape: [batch_size, no. numbers, 2, max_len, 10]
+
+    scaling = torch.tensor([1, 10], dtype=embedded.dtype, device=embedded.device).view(1, 1, 2, 1, 1)
+    embedded_mult = embedded * scaling  # [batch_size, no. numbers, 2, max_len, 10]
+
+    embedded_prefinal = embedded_mult[:, :, 0] * embedded_mult[:, :, 1]  # shape: [batch_size, no. numbers, max_len, 10]
+
+    final_embedding_sum = torch.sum(embedded_prefinal, dim=-2)  # shape: [batch_size, no. numbers, 10]
+
+    reduced_final_embedding = final_embedding_sum / (torch.max(torch.abs(final_embedding_sum), dim=-1, keepdim=True).values + 1)
+
+    return reduced_final_embedding
 
 class IdentityTransform(nn.Module):
     def __init__(self, input_shape):
         super(IdentityTransform, self).__init__()
         self.input_shape = input_shape
 
-    def forward(self, node, label):
+    def forward(self, node, label, token_ids):
         return node
 
     def get_embedding_dim(self):
@@ -26,39 +42,25 @@ class IdentityTransform(nn.Module):
         return node_shape
 
 class DigitEmbedTransform(nn.Module):
-    def __init__(self, input_shape, digit_embedding):
+    def __init__(self, input_shape, digit_embed_size):
         super(DigitEmbedTransform, self).__init__()
-        self.digit_embedding = digit_embedding
+        self.digit_embedding = nn.Embedding(feat_count, digit_embed_size, padding_idx=0)
         self.input_shape = input_shape
 
-    def forward(self, node, label):
+    def forward(self, node, label, token_ids):
         """
          node: (batch * seq, feat)
          label: list of list of str (batch, seq)
         """
-
-        node_shape = node.shape
-        embedding_size = self.digit_embedding.embedding_dim
-
-        flat_label = sum(label, [])
-        # If label is empty strings, use node values as str
-        if all(l == "" for l in flat_label):
-            # Convert node to int then str
-            node_str = node.detach().cpu().numpy().astype(int).astype(str)
-            # node_str shape: (batch, seq, feat)
-            # Flatten for embedding
-            flat_node_str = node_str.reshape(-1)
-            emb_list = [get_digit_emb_of_number(str(int(s)), self.digit_embedding) for s in flat_node_str]
-            emb = torch.stack(emb_list, dim=0).view(*node_shape, embedding_size)
-        else:
-            # Use label as input
-            emb_list = [get_digit_emb_of_number(s, self.digit_embedding) for s in flat_label]
-            emb = torch.stack(emb_list, dim=0).view(*node_shape, embedding_size)
-
-        # Flatten last two layers
-        emb = emb.view(*emb.shape[:-2], -1)
-
-        return emb.to(device=node.device)
+        emb_list = []
+        for token_ids_tensor in token_ids:
+            # token_ids_tensor is a set with a single tensor
+            lookup_output = token_ids_tensor.pop().to(self.digit_embedding.weight.device)
+            emb = get_embedding_from_lookup_output(lookup_output, self.digit_embedding)
+            emb = emb.view(*emb.shape[:-2], -1)
+            emb_list.append(emb)
+        
+        return torch.cat(emb_list, dim=0).to(device=node.device)
 
     def get_embedding_dim(self):
         return self.digit_embedding.embedding_dim * self.input_shape[-1]
@@ -80,7 +82,7 @@ class TextEmbedTransform(nn.Module):
                     "make sure that `optimum` package is installed")
         self.model = SentenceTransformer(model, trust_remote_code=True)
 
-    def forward(self, node, labels):
+    def forward(self, node, labels, token_ids):
         assert isinstance(labels, list) and all(isinstance(item, list) for item in labels)
 
         all_labels = sum(labels, [])
@@ -104,10 +106,9 @@ class TextEmbedTransform(nn.Module):
 class Transforms(nn.Module):
     def __init__(self, transforms, x_dict_shapes, digit_embed_size=64):
         super().__init__()
-        self.digit_embedding = nn.Embedding(feat_count, digit_embed_size)
         self.transform_map = {
             "None": lambda shape: IdentityTransform(shape),
-            "DigitEmbed": lambda shape: DigitEmbedTransform(shape, self.digit_embedding),
+            "DigitEmbed": lambda shape: DigitEmbedTransform(shape, digit_embed_size),
             "TextEmbed": lambda shape: TextEmbedTransform(shape),
         }
 
@@ -118,10 +119,10 @@ class Transforms(nn.Module):
             }
         )
 
-    def forward(self, x_dict, labels):
+    def forward(self, x_dict, labels, token_ids):
         for node_type, node_data in x_dict.items():
-            x_dict[node_type] = self.transforms[node_type](node_data, labels[node_type])
-            
+            x_dict[node_type] = self.transforms[node_type](node_data, labels[node_type], token_ids[node_type])
+
         return x_dict
     
     def get_output_dim(self):

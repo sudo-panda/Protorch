@@ -222,7 +222,7 @@ class GraMIEncoder(nn.Module):
         return X_t
 
     def forward(self, graph: HeteroData):
-        graph.x_dict = self.transforms(graph.x_dict, graph.text)
+        graph.x_dict = self.transforms(graph.x_dict, graph.text, graph.token_ids)
         x = {k: v.clone() for k, v in graph.x_dict.items()}
 
         graph.x_dict = self.init_layers(graph.x_dict, graph.edge_index_dict)
