@@ -27,7 +27,7 @@ from utils.common import (
     get_timestamp,
     find_latest_file
 )
-from utils.config import cfg, load_config, configs_dir
+from utils.config import TrainConfig, load_config, configs_dir
 from models.Devmap import DevmapModel
 
 os.environ["HF_HOME"] = str(top_level_path.parent / "hf")
@@ -256,7 +256,9 @@ if __name__ == "__main__":
     config_path = configs_dir / f"{args.config}.yaml"
     print(f"Loading config from {config_path}")
     assert config_path.exists(), f"Config file {config_path} does not exist. Please check the config name."
-    cfg = load_config(config_path, flatten=True)
+
+    cfg = load_config(config_path, train=True)
+    assert isinstance(cfg, TrainConfig), f"Config loaded is not a TrainConfig, got {type(cfg)}"
 
     set_seed(cfg.seed)
 
