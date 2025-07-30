@@ -23,7 +23,7 @@ from utils.common import (
     get_data_shape, 
     get_log_dir_name, 
     copy_file_to_dir,
-    set_seed,
+    make_deterministic,
     get_timestamp,
     find_latest_file
 )
@@ -260,7 +260,7 @@ if __name__ == "__main__":
     cfg = load_config(config_path, train=True)
     assert isinstance(cfg, TrainConfig), f"Config loaded is not a TrainConfig, got {type(cfg)}"
 
-    set_seed(cfg.seed)
+    make_deterministic(cfg.seed)
 
     main(cfg)
     print(f"Done")
