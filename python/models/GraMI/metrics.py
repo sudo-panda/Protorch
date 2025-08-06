@@ -1,17 +1,19 @@
 import torch.nn.functional as F
 import torch
+import numpy as np
 
-def loss_fn(X, X_hat, adj_mat, V, A, edge_logits, X_hat_prime, X_prime, lambda0=0.5, lambda1=0.1, lambda2=(1.0/15)):
+def GraMI_loss(X, X_hat, adj_mat, V, A, edge_logits, X_hat_prime, X_prime, variational, lamda=[0.5, 0.1, (1.0/15)]):
     loss_edge_mse = 0
     for k in adj_mat.keys():
-        loss_edge_mse += F.binary_cross_entropy_with_logits(edge_logits[k], adj_mat[k], reduction='mean')
+        loss_edge_mse += F.binary_cross_entropy(edge_logits[k], adj_mat[k], reduction='mean')
     loss_edge_mse /= len(adj_mat.keys())
 
     loss_edge_kl = 0
-    for k in V.keys():
-        mean, log_var = V[k]
-        loss_edge_kl += - 0.5 * torch.sum(1 + log_var - mean.pow(2) - log_var.exp())
-    loss_edge_kl /= len(V.keys())
+    if variational:
+        for k in V.keys():
+            mean, log_var = V[k]
+            loss_edge_kl += - 0.5 * torch.sum(1 + log_var - mean.pow(2) - log_var.exp())
+        loss_edge_kl /= len(V.keys())
 
     loss_edge = loss_edge_mse + loss_edge_kl
     # print(loss_edge, loss_edge_mse, 0.002 * loss_edge_kl)
@@ -29,9 +31,9 @@ def loss_fn(X, X_hat, adj_mat, V, A, edge_logits, X_hat_prime, X_prime, lambda0=
     loss_attr_mse /= len(X_hat.keys())
 
     loss_attr_kl = 0
-
-    mean, log_var = A
-    loss_attr_kl += - 0.5 * torch.sum(1 + log_var - mean.pow(2) - log_var.exp())
+    if variational:
+        mean, log_var = A
+        loss_attr_kl += - 0.5 * torch.sum(1 + log_var - mean.pow(2) - log_var.exp())
 
     loss_attr = loss_attr_mse + loss_attr_kl
     # print(loss_attr, loss_attr_mse, 0.002 * loss_attr_kl)
@@ -47,10 +49,10 @@ def loss_fn(X, X_hat, adj_mat, V, A, edge_logits, X_hat_prime, X_prime, lambda0=
     loss_rmse = torch.sqrt(loss_rmse)
     
     # print(loss_rmse)
-    loss = lambda0 * loss_edge + lambda1 * loss_attr + lambda2 * loss_rmse
+    loss = lamda[0] * loss_edge + lamda[1] * loss_attr + lamda[2] * loss_rmse
     return loss
 
-def acc_fn(X, adj_mat, edge_logits, X_prime):
+def edge_and_r2_acc(X, adj_mat, edge_logits, X_prime):
     """
     Compute:
       - edge_acc: average binary‐accuracy over all edge types
@@ -71,7 +73,8 @@ def acc_fn(X, adj_mat, edge_logits, X_prime):
         acc_values = []
         for k, labels in adj_mat.items():
             probs = torch.sigmoid(edge_logits[k])
-            preds = (probs > 0.5).float()
+            preds = (probs > 0.5).int()
+            print(f"Edge Acc [{k}]:\n  {probs}\n {preds.shape}\n  {labels.shape}\n")
             acc_k = (preds == labels.float()).float().mean()
             acc_values.append(acc_k)
         edge_acc = torch.stack(acc_values).mean() if acc_values else torch.tensor(0.0)
@@ -88,6 +91,6 @@ def acc_fn(X, adj_mat, edge_logits, X_prime):
             # add small fraction of var to avoid divide-by-zero
             r2_k = 1 - mse_k / (var_k + 1e-3 * var_k)
             r2_vals.append(r2_k)
-        r2_attr = torch.stack(r2_vals).mean() if r2_vals else torch.tensor(0.) 
-    
-        return edge_acc, r2_attr
+        r2_attr = torch.stack(r2_vals).mean() if r2_vals else torch.tensor(0.)
+
+        return np.array([edge_acc.item(), r2_attr.item()]) # send as numpy so that operators work downstream

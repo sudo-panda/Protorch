@@ -15,8 +15,8 @@ from torch.utils.tensorboard import SummaryWriter
 
 from torch_geometric.loader import DataLoader
 
-from utils.paths import top_level_path, runs_dir
-from dataset import DevmapDataset
+from utils.paths import top_level_path, runs_dir, get_data_paths
+from utils.dataset import DevmapDataset
 from utils.common import (
     find_latest_run_dir, 
     find_latest_wgts, 
@@ -31,23 +31,9 @@ from utils.train import get_scheduler_fn, get_scheduler_step_type
 from utils.config import TrainConfig, load_config, configs_dir
 from models.Devmap import DevmapModel
 
-os.environ["HF_HOME"] = str(top_level_path.parent / "hf")
-
-def single_step(model, batch, labels, loss_fn):
-    logits = model(batch)
-    probs = torch.sigmoid(logits)
-    loss = loss_fn(probs, labels.to(torch.float32)).mean()
-    acc = ((probs >= 0.5).to(torch.int32) == labels).float().mean()
-    return loss, acc
-
-def load_data(dataset, device, batch_size, cfg):
+def load_devmap_data(dataset, device, batch_size, cfg):
     ################ Load data ################
-    dataset_dir = top_level_path / dataset
-    assert dataset_dir.exists() and dataset_dir.is_dir(), f"Dataset directory {dataset_dir} does not exist. Please check the dataset name: {dataset}"
-    data_path = dataset_dir / "heterodatas"
-    assert data_path.exists() and data_path.is_dir(), f"Data path {data_path} does not exist. Please check the data directory."
-    csv_file  = data_path / "datapoints.csv"
-    assert csv_file.exists(), f"CSV file {csv_file} does not exist. Please check the file path."
+    _, data_path, csv_file = get_data_paths(dataset)
 
     with open(csv_file) as f:
         df = pd.read_csv(f)
@@ -112,8 +98,6 @@ def load_model(model_name, data_shapes, cfg):
     device, batch_size = cfg.device, cfg.batch_size
     model = DevmapModel(model_config, data_shapes, device, batch_size)
 
-    criterion = nn.BCELoss()
-
     optimizer = create_optimizer(cfg, model)
 
     scheduler = create_scheduler(cfg, optimizer)
@@ -126,7 +110,8 @@ def load_model(model_name, data_shapes, cfg):
 
     cfg.save(run_dir / f"config.yaml")
 
-    return model, optimizer, criterion, scheduler, scaler, start_epoch, valid_acc, run_dir
+    return model, optimizer, scheduler, scaler, start_epoch, valid_acc, run_dir
+
 
 def create_optimizer(cfg, model):
     opt_name, lr, decay = cfg.optimizer, cfg.learning_rate, cfg.weight_decay
@@ -188,16 +173,17 @@ def create_scheduler(cfg, optimizer):
     scheduler = None
     if cfg.scheduler is not None:
         assert cfg.scheduler.get("name") is not None, "Scheduler name must be provided in the config"
-        scheduler_name = cfg.scheduler["name"]
-        del cfg.scheduler["name"]
+        scheduler_cfg = cfg.scheduler.copy()
+        scheduler_name = scheduler_cfg["name"]
+        del scheduler_cfg["name"]
 
         total_training_steps = cfg.epochs * ((cfg.train_dataset_size - 1) // cfg.batch_size + 1)
-        if cfg.scheduler.get("num_warmup_steps") is not None:
-            num_warmup_steps = cfg.scheduler["num_warmup_steps"]
-            del cfg.scheduler["num_warmup_steps"]
-        elif cfg.scheduler.get("warmup_ratio") is not None:
-            num_warmup_steps = int(cfg.scheduler["warmup_ratio"] * total_training_steps)
-            del cfg.scheduler["warmup_ratio"]
+        if scheduler_cfg.get("num_warmup_steps") is not None:
+            num_warmup_steps = scheduler_cfg["num_warmup_steps"]
+            del scheduler_cfg["num_warmup_steps"]
+        elif scheduler_cfg.get("warmup_ratio") is not None:
+            num_warmup_steps = int(scheduler_cfg["warmup_ratio"] * total_training_steps)
+            del scheduler_cfg["warmup_ratio"]
         else:
             # Default warmup ratio of 5%
             num_warmup_steps = int(total_training_steps * 0.05)
@@ -207,10 +193,17 @@ def create_scheduler(cfg, optimizer):
             optimizer,
             num_warmup_steps=num_warmup_steps,
             num_training_steps=total_training_steps,
-            **cfg.scheduler
+            **scheduler_cfg
         )
         
     return scheduler
+
+def get_single_accuracy_metric(acc):
+    if isinstance(acc, np.ndarray) and len(acc) > 0:
+        return acc[0]
+    if isinstance(acc, float):
+        return acc
+    return 0.0
 
 def main(cfg):
     device, model_name, dataset, batch_size, epochs, lr, decay = (
@@ -220,28 +213,32 @@ def main(cfg):
     print(f"Training {model_name} on {dataset}")
     print(f"  epochs: {epochs}\n  batch size: {batch_size}\n  learning rate: {lr}\n  weight decay: {decay}")
 
-    train_dataloader, val_dataloader, _ = load_data(dataset, device, batch_size, cfg)
+    train_dataloader, val_dataloader, _ = load_devmap_data(dataset, device, batch_size, cfg)
     data_sample, _ = next(iter(train_dataloader))
     data_shapes = get_data_shape(data_sample)
 
-    model, optimizer, criterion, scheduler, scaler, start_epoch, best_valid_acc, run_dir = load_model(model_name, data_shapes, cfg)
+    model, optimizer, scheduler, scaler, start_epoch, best_valid_acc, run_dir = load_model(model_name, data_shapes, cfg)
+
     writer = SummaryWriter(log_dir=run_dir)
     if best_valid_acc is not None:
         print(f"  Best Valid Acc: {best_valid_acc}")
 
     scheduler_step_type = get_scheduler_step_type(scheduler)
+    loss_fn = nn.BCELoss()
+    acc_fn = lambda preds, labels: ((preds >= 0.5).to(torch.int32) == labels).float().item()
 
     for i in range(start_epoch, epochs):
-        mean_train_loss, mean_train_acc = train_one_epoch(train_dataloader, model, optimizer, criterion, scheduler, scheduler_step_type, i)
+        mean_train_loss, mean_train_acc = train_one_epoch(train_dataloader, model, optimizer, loss_fn, acc_fn, scheduler, scheduler_step_type, i)
 
-        mean_val_loss, mean_val_acc = validate_model(val_dataloader, model, criterion, i)
+        mean_val_loss, mean_val_acc = validate_model(val_dataloader, model, loss_fn, acc_fn, i)
 
         if scheduler_step_type == "metric_min":
             scheduler.step(mean_val_loss)
         elif scheduler_step_type == "metric_max":
             scheduler.step(mean_val_acc)
 
-        if best_valid_acc is None or mean_val_acc > best_valid_acc:
+        if best_valid_acc is None or \
+            get_single_accuracy_metric(mean_val_acc) > best_valid_acc:
             print("Improved validation accuracy! Saving ...", end="\t", flush=True)
             torch.save(
                 {
@@ -270,7 +267,7 @@ def main(cfg):
 
     writer.close()
 
-def train_one_epoch(train_dataloader, model, optimizer, criterion, scheduler, scheduler_step_type, i):
+def train_one_epoch(train_dataloader, model, optimizer, loss_fn, acc_fn, scheduler, scheduler_step_type, i):
     index_train = 0
     tot_train_loss = 0
     tot_train_acc  = 0
@@ -278,13 +275,13 @@ def train_one_epoch(train_dataloader, model, optimizer, criterion, scheduler, sc
     model.train()
     for batch, labels in tqdm(train_dataloader, desc=f"Train {i}"):
         optimizer.zero_grad()
-        loss, acc = single_step(model, batch, labels, criterion)
+        loss, acc = single_step(model, batch, labels, loss_fn, acc_fn)
         loss.backward()
         optimizer.step()
         if scheduler_step_type == "batch":
             scheduler.step()
         tot_train_loss += loss.item() * batch.batch_size
-        tot_train_acc  += acc.item() * batch.batch_size
+        tot_train_acc  += acc * batch.batch_size
         index_train    += batch.batch_size
 
     mean_train_loss = tot_train_loss / index_train
@@ -295,7 +292,7 @@ def train_one_epoch(train_dataloader, model, optimizer, criterion, scheduler, sc
     
     return mean_train_loss,mean_train_acc
 
-def validate_model(val_dataloader, model, criterion, i):
+def validate_model(val_dataloader, model, loss_fn, acc_fn, i):
     index_val = 0
     tot_val_loss = 0
     tot_val_acc = 0
@@ -303,14 +300,21 @@ def validate_model(val_dataloader, model, criterion, i):
     model.eval()
     with torch.no_grad():
         for batch, labels in tqdm(val_dataloader, desc=f"Valid {i}"):
-            loss, acc = single_step(model, batch, labels, criterion)
+            loss, acc = single_step(model, batch, labels, loss_fn, acc_fn)
             tot_val_loss += loss.item() * batch.batch_size
-            tot_val_acc  += acc.item() * batch.batch_size
+            tot_val_acc  += acc * batch.batch_size
             index_val    += batch.batch_size
 
     mean_val_loss   = tot_val_loss / index_val
     mean_val_acc    = tot_val_acc / index_val
-    return mean_val_loss,mean_val_acc
+    return mean_val_loss, mean_val_acc
+
+def single_step(model, batch, labels, loss_fn, acc_fn):
+    logits = model(batch)
+    probs = torch.sigmoid(logits)
+    loss = loss_fn(probs, labels.to(torch.float32)).mean()
+    acc = acc_fn(probs, labels).mean()
+    return loss, acc
 
 def log_training_metrics(writer, i, mean_train_loss, mean_train_acc, mean_val_loss, mean_val_acc, lr):
     writer.add_scalar("Loss/train", mean_train_loss, i)

@@ -1,9 +1,9 @@
 import torch
 from torch_geometric.data import HeteroData, Dataset
 
-class HecBenchDataset(Dataset):
+class GraphDataset(Dataset):
     def __init__(self, file_list, device="cpu"):
-        super(HecBenchDataset, self).__init__()
+        super(GraphDataset, self).__init__()
         self.device = device
         self.file_list = file_list
 

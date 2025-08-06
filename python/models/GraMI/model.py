@@ -22,13 +22,13 @@ class GraMIReparameterize(nn.Module):
             GraMIReparameterize.reparameterize(z_A), \
             { node: GraMIReparameterize.reparameterize(z_v) for node, z_v in z_V.items()}
 
-class GraMI(nn.Module):
+class GraMIModel(nn.Module):
     def __init__(self, 
                  config: dict[str, dict], 
                  data_shapes: dict[str, dict], 
                  device: str, 
                  batch_size: int):
-        super(GraMI, self).__init__()
+        super(GraMIModel, self).__init__()
         self.config = config
         self.device = device
         self.batch_size = batch_size
@@ -42,7 +42,7 @@ class GraMI(nn.Module):
             self.reparameterize = GraMIReparameterize()
 
         if "decoder" not in self.config:
-            self.decoder_config = GraMI.invert_config(self.config)
+            self.decoder_config = GraMIModel.invert_config(self.config)
             transforms_output_dim = self.encoder.transforms.get_output_dim()
             for node, layers in self.decoder_config["mlp"].items():
                 layers.append({"Linear": [transforms_output_dim[node]]})
@@ -54,8 +54,8 @@ class GraMI(nn.Module):
     @staticmethod
     def invert_config(config: dict[str, dict]) -> dict[str, dict]:
         inverted_config = {
-            "hgnn": GraMI.invert_hgnn_config(config["node_encoder"]["layers"]),
-            "mlp": {node_name: GraMI.invert_mpl_config(node_config) for node_name, node_config in config["init"].items()},
+            "hgnn": GraMIModel.invert_hgnn_config(config["node_encoder"]["layers"]),
+            "mlp": {node_name: GraMIModel.invert_mlp_config(node_config) for node_name, node_config in config["init"].items()},
         }
         return inverted_config
 
@@ -88,7 +88,7 @@ class GraMI(nn.Module):
         return inverted_config
 
     @staticmethod
-    def invert_mpl_config(config: list[dict[str, list]]) -> list[dict[str, list]]:
+    def invert_mlp_config(config: list[dict[str, list]]) -> list[dict[str, list]]:
         """
         config = [
             { "Linear":     [128] },
@@ -137,7 +137,9 @@ class GraMI(nn.Module):
         
         if self.is_variational:
             z_A, z_V = self.reparameterize(n_A, n_V)
-            
+        else:
+            z_A, z_V = n_A, n_V
+
         graph_ptr = {node: graph[node].ptr for node in graph.x_dict.keys()}
         edge_logits, x_tile_rec, x_rec = self.decoder(z_A, z_V, graph.edge_index_dict, graph_ptr)
         return x, x_tile, n_A, n_V, edge_logits, x_tile_rec, x_rec

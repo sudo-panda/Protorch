@@ -1,1 +1,5 @@
-from .model import GraMI
+from .model import GraMIModel
+from .metrics import (
+    GraMI_loss,
+    edge_and_r2_acc
+)

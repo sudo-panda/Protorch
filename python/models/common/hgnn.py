@@ -43,6 +43,7 @@ class HGNN(nn.Module):
         self.activations = nn.ModuleList()
 
         for layer_cfg in config:
+            layer_cfg = layer_cfg.copy()
             conv_name = layer_cfg["name"]
             out_ch = layer_cfg["out_channels"]
             act_name = layer_cfg.get("activation", "relu")
