@@ -4,3 +4,6 @@ lib/
 runs/
 *.pt
 events.out.tfevents.*
+*.core
+gpucore.*
+logs/
