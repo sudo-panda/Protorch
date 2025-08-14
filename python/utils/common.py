@@ -44,12 +44,12 @@ def get_data_shape(data: HeteroData):
     
     return {"x_dict": x_dict_shape, "edge_index_dict": edge_index_shape, "ptr": ptr}
 
-def get_timestamp():
-    timestamp = datetime.datetime.now().strftime("%b%d_%H-%M-%S")
+def get_timestamp(format: str = "%b%d_%H-%M-%S"):
+    timestamp = datetime.datetime.now().strftime(format)
     return timestamp
 
 def get_log_dir_name(model_name):
-    timestamp = get_timestamp()
+    timestamp = get_timestamp("%Y%m%d%H%M%S%f")
     log_dir_name = f"{timestamp}_{model_name}"
     return log_dir_name
 
