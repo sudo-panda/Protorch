@@ -14,7 +14,9 @@ import torch
 import torch.nn as nn
 from torch.utils.tensorboard import SummaryWriter
 
-from utils.paths import top_level_path, runs_dir
+from torch_geometric.loader import DataLoader
+
+from utils.paths import runs_dir, get_data_paths
 from utils.dataset import GraphDataset
 from utils.common import (
     find_latest_run_dir, 
@@ -30,7 +32,10 @@ from utils.common import (
 from utils.train import get_scheduler_fn, get_scheduler_step_type
 from utils.config import TrainConfig, load_config, configs_dir
 from models.GraMI import GraMIModel, GraMI_loss, edge_and_r2_acc
-from utils.paths import GraMI_path, top_level_path, get_data_paths
+
+
+global_step = 0
+debug = False
 
 def load_graph_data(dataset, device, batch_size, cfg):
     ################ Load data ################
