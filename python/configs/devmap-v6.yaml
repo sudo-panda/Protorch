@@ -1,0 +1,20 @@
+device: cuda
+model_name: Devmap-512-8-GAT-CLS
+seed: 42
+train:
+  dataset: devmap-amd
+  epochs: 1000
+  batch_size: 1
+  world_size: 2
+  learning_rate: 0.001
+  weight_decay: 0.0001
+  train_from_checkpoint: true
+  optimizer: AdamW
+  scheduler:
+    name: linear
+test:
+  dataset: devmap-amd
+  batch_size: 16
+  checkpoint:
+    dir: /tmp/checkpoints
+    file_name: devmap_test_checkpoint.pth

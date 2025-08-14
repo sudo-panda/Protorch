@@ -1,0 +1,23 @@
+device: cuda
+model_name: graph-512-8-GAT-VAE-eps
+seed: 42
+train:
+  dataset: devmap
+  epochs: 1000
+  batch_size: 16
+  world_size: 2
+  learning_rate: 0.01
+  weight_decay: 0.001
+  train_from_checkpoint: false
+  optimizer: AdamW
+  scheduler:
+    name: linear
+  loss_config:
+    lambdas: [2, 0.1, 0.0666]
+    betas: [1.0, 1.0]
+test:
+  dataset: devmap
+  batch_size: 16
+  checkpoint:
+    dir: /tmp/checkpoints
+    file_name: devmap_test_checkpoint.pth
