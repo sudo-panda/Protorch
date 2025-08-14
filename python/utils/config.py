@@ -18,6 +18,7 @@ class TrainConfig:
     optimizer: str = "AdamW"
     scheduler: Optional[dict] = None
     scaler: Optional[dict] = None
+    loss_config: Optional[dict] = None
 
     # For easy access only, is not setable
     training_mode: bool = True
