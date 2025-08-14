@@ -24,10 +24,10 @@ class GraMIAttributeDecoder(nn.Module):
         self.batch_size = batch_size
 
         self.hgnn = HGNN(config["hgnn"], data_shapes["edge_index_dict"]).to(device=self.device)
-        self.mlp = {
+        self.mlp = nn.ModuleDict({
             node_type: MLP(node_config, self.hgnn.get_output_dim()).to(device=self.device)
             for node_type, node_config in config["mlp"].items()
-        }
+        })
 
     @staticmethod
     def unbatch_graphs(batched, ptrs):
