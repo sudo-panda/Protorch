@@ -72,13 +72,15 @@ def edge_and_r2_acc(X, adj_mat, edge_logits, X_prime):
         # 1) Edge‐accuracy
         acc_values = []
         for k, labels in adj_mat.items():
-            probs = torch.sigmoid(edge_logits[k])
-            preds = (probs > 0.5).int()
-            print(f"Edge Acc [{k}]:\n  {probs}\n {preds.shape}\n  {labels.shape}\n")
-            acc_k = (preds == labels.float()).float().mean()
+            preds = (edge_logits[k] > 0.5).type(torch.float32)
+            acc_k = (preds == labels).type(torch.float32).mean()
             acc_values.append(acc_k)
-        edge_acc = torch.stack(acc_values).mean() if acc_values else torch.tensor(0.0)
-    
+        if acc_values:
+            edge_acc = torch.stack(acc_values).mean()
+        else:
+            print("Warning no edge_types in the adj_mat dictionary")
+            edge_acc = torch.tensor(0.0)
+
         # 2) Attribute R²
         r2_vals = []
         for k, x in X.items():
