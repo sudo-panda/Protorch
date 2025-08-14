@@ -229,7 +229,7 @@ def main(cfg):
     acc_fn = edge_and_r2_acc
 
     for i in range(start_epoch, epochs):
-        mean_train_loss, mean_train_acc = train_one_epoch(train_dataloader, model, optimizer, loss_fn, acc_fn, scheduler, scheduler_step_type, i)
+        mean_train_loss, mean_train_acc = train_one_epoch(train_dataloader, model, optimizer, loss_fn, acc_fn, scheduler, scheduler_step_type, i, writer)
 
         mean_val_loss, mean_val_acc = validate_model(val_dataloader, model, loss_fn, acc_fn, i)
 
@@ -268,7 +268,16 @@ def main(cfg):
 
     writer.close()
 
-def train_one_epoch(train_dataloader, model, optimizer, loss_fn, acc_fn, scheduler, scheduler_step_type, i):
+def train_one_epoch(train_dataloader, 
+                    model, 
+                    optimizer, 
+                    loss_fn, 
+                    acc_fn, 
+                    scheduler, 
+                    scheduler_step_type, 
+                    i, 
+                    writer):
+    global global_step, debug
     index_train = 0
     tot_train_loss = 0
     tot_train_acc  = 0
@@ -276,7 +285,7 @@ def train_one_epoch(train_dataloader, model, optimizer, loss_fn, acc_fn, schedul
     model.train()
     for batch in tqdm(train_dataloader, desc=f"Train {i}"):
         optimizer.zero_grad()
-        loss, acc = single_step(model, batch, loss_fn, acc_fn)
+        loss, acc = single_step(model, batch, loss_fn, acc_fn, writer, i, index_train)
         loss.backward()
         optimizer.step()
         if scheduler_step_type == "batch":
@@ -284,6 +293,15 @@ def train_one_epoch(train_dataloader, model, optimizer, loss_fn, acc_fn, schedul
         tot_train_loss += loss.item() * batch.batch_size
         tot_train_acc  += acc * batch.batch_size
         index_train    += batch.batch_size
+
+        if debug:
+            for name, param in model.named_parameters():
+                writer.add_histogram(f"weights/{name}", param.data, global_step)
+                if param.grad is not None:
+                    writer.add_histogram(f"grads/{name}", param.grad, global_step)
+                    # Print ratio of how many gradients are zero
+                    print(f"Step {global_step}, Param {name}, Grad Non-Zero Ratio: {torch.count_nonzero(param.grad) / param.grad.numel()}")
+            global_step += 1
 
     mean_train_loss = tot_train_loss / index_train
     mean_train_acc  = tot_train_acc / index_train
@@ -301,7 +319,7 @@ def validate_model(val_dataloader, model, loss_fn, acc_fn, i):
     model.eval()
     with torch.no_grad():
         for batch in tqdm(val_dataloader, desc=f"Valid {i}"):
-            loss, acc = single_step(model, batch, loss_fn, acc_fn)
+            loss, acc = single_step(model, batch, loss_fn, acc_fn, None, i, index_val)
             tot_val_loss += loss.item() * batch.batch_size
             tot_val_acc  += acc * batch.batch_size
             index_val    += batch.batch_size
@@ -310,10 +328,18 @@ def validate_model(val_dataloader, model, loss_fn, acc_fn, i):
     mean_val_acc    = tot_val_acc / index_val
     return mean_val_loss, mean_val_acc
 
-def single_step(model, data, loss_fn, acc_fn):
+def single_step(model, data, loss_fn, acc_fn, writer, epoch, data_index) -> tuple[torch.Tensor, float]:
     adj_mat = get_adj_mat_from_edge_index(data.x_dict, data.edge_index_dict)
 
     X, X_hat, A, V, edge_logits, X_hat_prime, X_prime = model(data)
+
+    global debug
+    if model.training and debug:
+        for k, v in V.items():
+            writer.add_histogram(f"latent/z_V_{k}_d{data_index}", v, epoch)
+        writer.add_histogram(f"latent/z_A_d{data_index}", A, epoch)
+        for k, v in edge_logits.items():
+            writer.add_histogram(f"latent/edges_{k}_d{data_index}", v, epoch)
 
     assert all([X_hat[k].shape == X_hat_prime[k].shape for k in X_hat_prime.keys()]), \
         f"{[(k, X_hat[k].shape, X_hat_prime[k].shape) for k in X_hat_prime.keys() if X_hat[k].shape != X_hat_prime[k].shape]}"
@@ -355,6 +381,7 @@ def get_current_lr(optimizer, scheduler):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", type=str, required=True)
+    parser.add_argument("--debug", action="store_true")
     args = parser.parse_args()
 
 
@@ -364,6 +391,9 @@ if __name__ == "__main__":
     assert config_path.exists(), f"Config file {config_path} does not exist. Please check the config name."
 
     cfg = load_config(config_path, train=True)
+    
+    debug = args.debug
+
     assert isinstance(cfg, TrainConfig), f"Config loaded is not a TrainConfig, got {type(cfg)}"
 
     make_deterministic(cfg.seed)
