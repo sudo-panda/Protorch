@@ -387,8 +387,15 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", type=str, required=True)
     parser.add_argument("--debug", action="store_true")
+    parser.add_argument('--epochs', type=int, default=None)
+    parser.add_argument('--learning_rate', type=float, default=None)
+    parser.add_argument('--weight_decay', type=float, default=None)
+    parser.add_argument('--train_from_checkpoint', type=bool, default=None)
+    parser.add_argument('--optimizer', type=str, default=None)
+    parser.add_argument('--scheduler', type=str, default=None)
+    parser.add_argument('--loss_lambdas', type=str, default=None)
+    parser.add_argument('--loss_betas', type=str, default=None)
     args = parser.parse_args()
-
 
     # if args.config:
     config_path = configs_dir / f"{args.config}.yaml"
@@ -396,6 +403,19 @@ if __name__ == "__main__":
     assert config_path.exists(), f"Config file {config_path} does not exist. Please check the config name."
 
     cfg = load_config(config_path, train=True)
+
+    for arg_k, arg_v in vars(args).items():
+        if arg_k not in ["config", "debug"]:
+            if arg_v is not None:
+                if arg_k in ['scheduler', 'loss_lambdas', 'loss_betas']:
+                    args.__dict__[arg_k] = json.loads(arg_v)
+
+                if arg_k in ["loss_lambdas", "loss_betas"]:
+                    loss_key = arg_k.split("_")[1]
+                    print(f"Overriding config value loss_config[{loss_key}] with {arg_v}")
+                    cfg.__dict__["loss_config"][loss_key] = args.__dict__[arg_k]
+                else:
+                    cfg.__dict__[arg_k] = args.__dict__[arg_k]
     
     debug = args.debug
 

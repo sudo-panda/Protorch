@@ -2,7 +2,10 @@ import torch.nn.functional as F
 import torch
 import numpy as np
 
-def GraMI_loss(X, X_hat, adj_mat, V, A, edge_logits, X_hat_prime, X_prime, variational, lamda=[0.5, 0.1, (1.0/15)]):
+def GraMI_loss(X, X_hat, adj_mat, V, A, edge_logits, 
+               X_hat_prime, X_prime, variational, 
+               lambdas=[2, 0.1, (1.0/15)], 
+               betas=[1.0, 1.0]):
     loss_edge_mse = 0
     for k in adj_mat.keys():
         loss_edge_mse += F.binary_cross_entropy(edge_logits[k], adj_mat[k], reduction='mean')
@@ -15,7 +18,7 @@ def GraMI_loss(X, X_hat, adj_mat, V, A, edge_logits, X_hat_prime, X_prime, varia
             loss_edge_kl += - 0.5 * torch.sum(1 + log_var - mean.pow(2) - log_var.exp())
         loss_edge_kl /= len(V.keys())
 
-    loss_edge = loss_edge_mse + loss_edge_kl
+    loss_edge = loss_edge_mse + betas[0] * loss_edge_kl
     # print(loss_edge, loss_edge_mse, 0.002 * loss_edge_kl)
 
     loss_attr_mse = 0
@@ -35,7 +38,7 @@ def GraMI_loss(X, X_hat, adj_mat, V, A, edge_logits, X_hat_prime, X_prime, varia
         mean, log_var = A
         loss_attr_kl += - 0.5 * torch.sum(1 + log_var - mean.pow(2) - log_var.exp())
 
-    loss_attr = loss_attr_mse + loss_attr_kl
+    loss_attr = loss_attr_mse + betas[1] * loss_attr_kl
     # print(loss_attr, loss_attr_mse, 0.002 * loss_attr_kl)
 
     loss_rmse = 0
@@ -49,7 +52,7 @@ def GraMI_loss(X, X_hat, adj_mat, V, A, edge_logits, X_hat_prime, X_prime, varia
     loss_rmse = torch.sqrt(loss_rmse)
     
     # print(loss_rmse)
-    loss = lamda[0] * loss_edge + lamda[1] * loss_attr + lamda[2] * loss_rmse
+    loss = lambdas[0] * loss_edge + lambdas[1] * loss_attr + lambdas[2] * loss_rmse
     return loss
 
 def edge_and_r2_acc(X, adj_mat, edge_logits, X_prime):
