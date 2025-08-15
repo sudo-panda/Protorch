@@ -17,15 +17,12 @@ class GraMINodeDecoder(nn.Module):
         return edge_logits
 
 class GraMIAttributeDecoder(nn.Module):
-    def __init__(self, config, data_shapes, device, batch_size):
+    def __init__(self, config, data_shapes):
         super(GraMIAttributeDecoder, self).__init__()
-        self.layers = nn.ModuleList()
-        self.device = device
-        self.batch_size = batch_size
-
-        self.hgnn = HGNN(config["hgnn"], data_shapes["edge_index_dict"]).to(device=self.device)
+        
+        self.hgnn = HGNN(config["hgnn"], data_shapes["edge_index_dict"])
         self.mlp = nn.ModuleDict({
-            node_type: MLP(node_config, self.hgnn.get_output_dim()).to(device=self.device)
+            node_type: MLP(node_config, self.hgnn.get_output_dim())
             for node_type, node_config in config["mlp"].items()
         })
 
@@ -76,15 +73,13 @@ class GraMIAttributeDecoder(nn.Module):
         return x_tile_rec, x_rec
 
 class GraMIDecoder(nn.Module):
-    def __init__(self, config, data_shapes, device, batch_size):
+    def __init__(self, config, data_shapes):
         super(GraMIDecoder, self).__init__()
         self.config = config
-        self.device = device
-        self.batch_size = batch_size
-
+        
         self.node_decoder = GraMINodeDecoder()
 
-        self.attribute_decoder = GraMIAttributeDecoder(config, data_shapes, device, batch_size)
+        self.attribute_decoder = GraMIAttributeDecoder(config, data_shapes)
 
     def forward(self, 
                 z_A: torch.Tensor, 

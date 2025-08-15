@@ -105,8 +105,8 @@ def load_model(model_name, data_shapes, cfg):
     with open(model_arch_file) as f:
         model_config = json.load(f)
 
-    device, batch_size = cfg.device, cfg.batch_size
-    model = GraMIModel(model_config, data_shapes, device, batch_size)
+    device = cfg.device
+    model = GraMIModel(model_config, data_shapes)
 
     optimizer = create_optimizer(cfg, model)
 
@@ -326,7 +326,7 @@ def train_one_epoch(train_dataloader,
 
         if debug:
             print_gpu_mem(f"Train, Step: {global_step}, Epoch {i}")
-            
+
             for name, param in model.named_parameters():
                 writer.add_histogram(f"weights/{name}", param.data, global_step)
                 if param.grad is not None:

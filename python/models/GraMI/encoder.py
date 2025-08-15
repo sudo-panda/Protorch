@@ -5,13 +5,12 @@ from torch_geometric.data import HeteroData
 from models.common import MLP, HGNN
 
 class GraMIInit(nn.Module):
-    def __init__(self, config, x_dict_shape, device):
+    def __init__(self, config, x_dict_shape):
         super(GraMIInit, self).__init__()
         self.config = config
-        self.device = device
 
         self.layer_dict = nn.ModuleDict({
-            node_name: MLP(layer_config, x_dict_shape[node_name][-1]).to(device)
+            node_name: MLP(layer_config, x_dict_shape[node_name][-1])
             for node_name, layer_config in config.items()
         })
 
@@ -26,11 +25,9 @@ class GraMIInit(nn.Module):
                 for node_name, layer in self.layer_dict.items()}
 
 class GraMIAttributeEncoder(nn.Module):
-    def __init__(self, pool_dim, config, device, batch_size, variational=[], stochastic=False):
+    def __init__(self, pool_dim, config, variational=[], stochastic=False):
         super(GraMIAttributeEncoder, self).__init__()
         self.config = config
-        self.device = device
-        self.batch_size = batch_size
         self.stochastic = stochastic
         self.variational = bool(len(variational) > 0)
 
@@ -38,16 +35,16 @@ class GraMIAttributeEncoder(nn.Module):
 
         self.pool = nn.AdaptiveAvgPool1d(self.pool_dim)
 
-        self.mlp = MLP(self.config, self.pool_dim).to(device)
+        self.mlp = MLP(self.config, self.pool_dim)
 
         if self.stochastic:
-            self.mlp_eps = MLP(self.config, self.pool_dim).to(device)
+            self.mlp_eps = MLP(self.config, self.pool_dim)
 
         ae_dim = self.mlp.get_output_dim()
 
         if self.variational:
-            self.mlp_mean = MLP(variational, ae_dim).to(device)
-            self.mlp_var  = MLP(variational, ae_dim).to(device)
+            self.mlp_mean = MLP(variational, ae_dim)
+            self.mlp_var  = MLP(variational, ae_dim)
 
     def forward(self, X_T: list[torch.Tensor]):
         # TODO: Convert X_T from [(512, 661), (512, 2275), (512, 1086), (512, 1332)]
@@ -94,21 +91,22 @@ class GraMIAttributeEncoder(nn.Module):
         return self.mlp.get_output_shape(X_T_pooled_shape)
 
 class GraMINodeEncoder(nn.Module):
-    def __init__(self, config, edge_index_dict_shape, device, variational=[], stochastic=False):
+    def __init__(self, config, edge_index_dict_shape, variational=[], stochastic=False):
         super(GraMINodeEncoder, self).__init__()
         self.config = config
-        self.device = device
         self.stochastic = stochastic
         self.variational = (len(variational) > 0)
 
-        self.hgnn = HGNN(config, edge_index_dict_shape).to(device)
+        self.hgnn = HGNN(config, edge_index_dict_shape)
 
         if variational:
-            self.mlp_mean = MLP(variational, self.hgnn.get_output_dim()).to(device)
-            self.mlp_var  = MLP(variational, self.hgnn.get_output_dim()).to(device)
+            # TODO: Variational MLPs are currently shared across all node types.
+            #       If required, we can create separate MLPs for each node type.
+            self.mlp_mean = MLP(variational, self.hgnn.get_output_dim())
+            self.mlp_var  = MLP(variational, self.hgnn.get_output_dim())
 
         if stochastic:
-            self.hgnn_eps = HGNN(config, edge_index_dict_shape).to(device)
+            self.hgnn_eps = HGNN(config, edge_index_dict_shape)
 
     def forward(self, graph):
         n_V = self.hgnn(graph.x_dict, graph.edge_index_dict)
@@ -141,11 +139,9 @@ class GraMINodeEncoder(nn.Module):
         return self.hgnn.get_output_shape(x_dict_shape)
 
 class GraMIEncoder(nn.Module):
-    def __init__(self, config, data_shapes, device, batch_size):
+    def __init__(self, config, data_shapes):
         super(GraMIEncoder, self).__init__()
         self.config = config
-        self.device = device
-        self.batch_size = batch_size
 
         transforms   = self.config["transforms"]
         attr_enc_cfg = self.config["attribute_encoder"]
@@ -162,13 +158,11 @@ class GraMIEncoder(nn.Module):
         self.transforms = Transforms(transforms, data_shapes["x_dict"])
         data_shapes["x_dict"] = self.transforms.get_output_shape(data_shapes["x_dict"])
 
-        self.init_layers = GraMIInit(self.config["init"], data_shapes["x_dict"], device)
+        self.init_layers = GraMIInit(self.config["init"], data_shapes["x_dict"])
         data_shapes["x_dict"] = self.init_layers.get_output_shape(data_shapes["x_dict"])
 
-        self.attribute_encoder = GraMIAttributeEncoder(attr_enc_cfg["dim"], 
-                                                       attr_enc_cfg["layers"], 
-                                                       self.device, 
-                                                       self.batch_size,
+        self.attribute_encoder = GraMIAttributeEncoder(attr_enc_cfg["dim"],
+                                                       attr_enc_cfg["layers"],
                                                        variational=attr_enc_cfg_var,
                                                        stochastic=attr_enc_cfg["stochastic"])
         X_T_shape = GraMIEncoder.get_X_t_shape(data_shapes, self.node_order)
@@ -176,9 +170,8 @@ class GraMIEncoder(nn.Module):
 
 
         self.node_encoder = GraMINodeEncoder(node_enc_cfg["layers"],
-                                             data_shapes["edge_index_dict"], 
-                                             device,
-                                             variational=node_enc_cfg_var, 
+                                             data_shapes["edge_index_dict"],
+                                             variational=node_enc_cfg_var,
                                              stochastic=node_enc_cfg["stochastic"])
         node_enc_shape = data_shapes.copy()
         node_enc_shape["x_dict"] = self.node_encoder.get_output_shape(node_enc_shape["x_dict"])
