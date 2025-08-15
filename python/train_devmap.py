@@ -48,19 +48,23 @@ def load_devmap_data(dataset, device, batch_size, cfg):
         df = pd.read_csv(f)
 
     df["file_path"] = df["pt_file"].apply(lambda x: str(data_path / x))
-    file_list = df["file_path"].tolist()
-    devmap_list = df["device"].tolist()[:len(file_list)]
+    input_list = df.reset_index()[["file_path", "comp", "rational", "mem", "localmem", "coalesced", "atomic", "transfer", "wgsize"]].to_dict('records')
 
-    train_files, temp_files, train_devmap, temp_devmap = train_test_split(file_list,  devmap_list, test_size=0.4, random_state=cfg.seed)
-    val_files,   test_files, val_devmap,   test_devmap = train_test_split(temp_files, temp_devmap, test_size=0.5, random_state=cfg.seed)
+    devmap_list = df["device"].tolist()
+    assert len(input_list) == len(devmap_list), "File list and device list must have the same length"
 
-    cfg["train_dataset_size"] = len(train_files)
-    cfg["val_dataset_size"] = len(val_files)
-    cfg["test_dataset_size"] = len(test_files)
+    train_inputs, temp_inputs, train_devmap, temp_devmap = train_test_split(input_list,  devmap_list, test_size=0.4, random_state=cfg.seed)
+    val_inputs,   test_inputs, val_devmap,   test_devmap = train_test_split(temp_inputs, temp_devmap, test_size=0.5, random_state=cfg.seed)
+    # train_files, val_files, test_files = file_list[0:2], file_list[2:3], file_list[3:4]
+    # train_devmap, val_devmap, test_devmap = devmap_list[0:2], devmap_list[2:3], devmap_list[3:4]
 
-    train_dataloader = DataLoader(DevmapDataset(train_files, train_devmap, device=device), batch_size=batch_size, shuffle=True)
-    val_dataloader   = DataLoader(DevmapDataset(val_files,   val_devmap,   device=device), batch_size=batch_size, shuffle=False)
-    test_dataloader  = DataLoader(DevmapDataset(test_files,  test_devmap,  device=device), batch_size=batch_size, shuffle=False)
+    cfg["train_dataset_size"] = len(train_inputs)
+    cfg["val_dataset_size"] = len(val_inputs)
+    cfg["test_dataset_size"] = len(test_inputs)
+
+    train_dataloader = DataLoader(DevmapDataset(train_inputs, train_devmap, device=device), batch_size=batch_size, shuffle=True)
+    val_dataloader   = DataLoader(DevmapDataset(val_inputs,   val_devmap,   device=device), batch_size=batch_size, shuffle=False)
+    test_dataloader  = DataLoader(DevmapDataset(test_inputs,  test_devmap,  device=device), batch_size=batch_size, shuffle=False)
 
     return train_dataloader, val_dataloader, test_dataloader
 
