@@ -1,4 +1,6 @@
 import argparse
+import gc
+from pathlib import Path
 import pickle
 import os
 import json
@@ -15,7 +17,7 @@ from torch.utils.tensorboard import SummaryWriter
 
 from torch_geometric.loader import DataLoader
 
-from utils.paths import top_level_path, runs_dir, get_data_paths
+from utils.paths import runs_dir, get_data_paths
 from utils.dataset import DevmapDataset
 from utils.common import (
     find_latest_run_dir, 
@@ -25,11 +27,18 @@ from utils.common import (
     copy_file_to_dir,
     make_deterministic,
     get_timestamp,
-    find_latest_file
+    find_latest_file,
+
+    print_gpu_mem,
+    sizeof_fmt,
 )
 from utils.train import get_scheduler_fn, get_scheduler_step_type
 from utils.config import TrainConfig, load_config, configs_dir
 from models.Devmap import DevmapModel
+
+
+global_step = 0
+debug = False
 
 def load_devmap_data(dataset, device, batch_size, cfg):
     ################ Load data ################
@@ -55,7 +64,7 @@ def load_devmap_data(dataset, device, batch_size, cfg):
 
     return train_dataloader, val_dataloader, test_dataloader
 
-def load_model(model_name, data_shapes, cfg):
+def load_training_modules(model_name, data_shapes, cfg):
     train_from_checkpoint = cfg.train_from_checkpoint
     run_dir = runs_dir / get_log_dir_name(model_name)
 
@@ -95,8 +104,8 @@ def load_model(model_name, data_shapes, cfg):
     with open(model_arch_file) as f:
         model_config = json.load(f)
 
-    device, batch_size = cfg.device, cfg.batch_size
-    model = DevmapModel(model_config, data_shapes, device, batch_size)
+    device = cfg.device
+    model = DevmapModel(model_config, data_shapes)
 
     optimizer = create_optimizer(cfg, model)
 
@@ -217,7 +226,8 @@ def main(cfg):
     data_sample, _ = next(iter(train_dataloader))
     data_shapes = get_data_shape(data_sample)
 
-    model, optimizer, scheduler, scaler, start_epoch, best_valid_acc, run_dir = load_model(model_name, data_shapes, cfg)
+    model, optimizer, scheduler, scaler, start_epoch, best_valid_acc, run_dir = \
+        load_training_modules(model_name, data_shapes, cfg)
 
     writer = SummaryWriter(log_dir=run_dir)
     if best_valid_acc is not None:
@@ -225,10 +235,13 @@ def main(cfg):
 
     scheduler_step_type = get_scheduler_step_type(scheduler)
     loss_fn = nn.BCELoss()
-    acc_fn = lambda preds, labels: ((preds >= 0.5).to(torch.int32) == labels).float().item()
+    acc_fn = lambda preds, labels: ((preds >= 0.5).to(torch.int32) == labels).type(torch.float32)
 
     for i in range(start_epoch, epochs):
-        mean_train_loss, mean_train_acc = train_one_epoch(train_dataloader, model, optimizer, loss_fn, acc_fn, scheduler, scheduler_step_type, i)
+        gc.collect()
+        torch.cuda.empty_cache()
+        
+        mean_train_loss, mean_train_acc = train_one_epoch(train_dataloader, model, optimizer, loss_fn, acc_fn, scheduler, scheduler_step_type, i, writer)
 
         mean_val_loss, mean_val_acc = validate_model(val_dataloader, model, loss_fn, acc_fn, i)
 
@@ -237,8 +250,8 @@ def main(cfg):
         elif scheduler_step_type == "metric_max":
             scheduler.step(mean_val_acc)
 
-        if best_valid_acc is None or \
-            get_single_accuracy_metric(mean_val_acc) > best_valid_acc:
+        acc_metric = get_single_accuracy_metric(mean_val_acc)
+        if best_valid_acc is None or acc_metric > best_valid_acc:
             print("Improved validation accuracy! Saving ...", end="\t", flush=True)
             torch.save(
                 {
@@ -258,7 +271,7 @@ def main(cfg):
                 run_dir / f"{model_name}_{get_timestamp()}.pt"
             )
 
-            best_valid_acc = mean_val_acc
+            best_valid_acc = acc_metric
             print("Done", flush=True)
 
         log_training_metrics(writer, i, mean_train_loss, mean_train_acc, 
@@ -267,22 +280,60 @@ def main(cfg):
 
     writer.close()
 
-def train_one_epoch(train_dataloader, model, optimizer, loss_fn, acc_fn, scheduler, scheduler_step_type, i):
+def train_one_epoch(train_dataloader, 
+                    model, 
+                    optimizer, 
+                    loss_fn, 
+                    acc_fn, 
+                    scheduler, 
+                    scheduler_step_type, 
+                    i, 
+                    writer):
+    global global_step, debug
     index_train = 0
     tot_train_loss = 0
     tot_train_acc  = 0
 
     model.train()
     for batch, labels in tqdm(train_dataloader, desc=f"Train {i}"):
+        torch.cuda.empty_cache()
         optimizer.zero_grad()
-        loss, acc = single_step(model, batch, labels, loss_fn, acc_fn)
-        loss.backward()
+        
+        if debug:
+            size_accum = 0
+            for file in batch.file_path:
+                file_path = Path(file)
+                size_accum += file_path.stat().st_size
+            print(f"{sizeof_fmt(size_accum)}", flush=True)
+
+        try:
+            loss, acc = single_step(model, batch, labels, loss_fn, acc_fn)
+        except torch.OutOfMemoryError as e:
+            for file in batch.file_path:
+                file_path = Path(file)
+                size = file_path.stat().st_size
+                print(f"{file}, {sizeof_fmt(size)}", flush=True)
+            raise e
+        
+        loss.backward(retain_graph=False)
         optimizer.step()
         if scheduler_step_type == "batch":
             scheduler.step()
-        tot_train_loss += loss.item() * batch.batch_size
+        tot_train_loss += loss.detach().cpu().item() * batch.batch_size
         tot_train_acc  += acc * batch.batch_size
         index_train    += batch.batch_size
+
+        if debug:
+            print_gpu_mem(f"Train, Step: {global_step}, Epoch {i}")
+
+            for name, param in model.named_parameters():
+                writer.add_histogram(f"weights/{name}", param.data, global_step)
+                if param.grad is not None:
+                    writer.add_histogram(f"grads/{name}", param.grad, global_step)
+                    # Print ratio of how many gradients are zero
+                    print(f"Step {global_step}, Param {name}, Grad Non-Zero Ratio: {torch.count_nonzero(param.grad) / param.grad.numel()}")
+
+        global_step += 1
 
     mean_train_loss = tot_train_loss / index_train
     mean_train_acc  = tot_train_acc / index_train
@@ -290,7 +341,7 @@ def train_one_epoch(train_dataloader, model, optimizer, loss_fn, acc_fn, schedul
     if scheduler_step_type == "epoch":
             scheduler.step()
     
-    return mean_train_loss,mean_train_acc
+    return mean_train_loss, mean_train_acc
 
 def validate_model(val_dataloader, model, loss_fn, acc_fn, i):
     index_val = 0
@@ -340,8 +391,14 @@ def get_current_lr(optimizer, scheduler):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", type=str, required=True)
+    parser.add_argument("--debug", action="store_true")
+    parser.add_argument('--epochs', type=int, default=None)
+    parser.add_argument('--learning_rate', type=float, default=None)
+    parser.add_argument('--weight_decay', type=float, default=None)
+    parser.add_argument('--train_from_checkpoint', type=bool, default=None)
+    parser.add_argument('--optimizer', type=str, default=None)
+    parser.add_argument('--scheduler', type=str, default=None)
     args = parser.parse_args()
-
 
     # if args.config:
     config_path = configs_dir / f"{args.config}.yaml"
@@ -349,6 +406,18 @@ if __name__ == "__main__":
     assert config_path.exists(), f"Config file {config_path} does not exist. Please check the config name."
 
     cfg = load_config(config_path, train=True)
+
+    for arg_k, arg_v in vars(args).items():
+        if arg_k not in ["config", "debug"]:
+            if arg_v is not None:
+                if arg_k in ['scheduler', 'loss_lambdas', 'loss_betas']:
+                    args.__dict__[arg_k] = json.loads(arg_v)
+
+                print(f"Overriding config value {arg_k} with {arg_v}")
+                cfg.__dict__[arg_k] = args.__dict__[arg_k]
+    
+    debug = args.debug
+
     assert isinstance(cfg, TrainConfig), f"Config loaded is not a TrainConfig, got {type(cfg)}"
 
     make_deterministic(cfg.seed)
