@@ -17,6 +17,8 @@ class GraphDataset(Dataset):
         
         del data['module', 'symbol', 'value']
         del data['module']
+
+        data.file_path = self.file_list[idx]
         return data
 
 class DevmapDataset(Dataset):

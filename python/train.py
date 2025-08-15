@@ -1,5 +1,6 @@
 import argparse
-from csv import writer
+import gc
+from pathlib import Path
 import pickle
 import os
 import json
@@ -27,7 +28,10 @@ from utils.common import (
     make_deterministic,
     get_timestamp,
     find_latest_file,
-    get_adj_mat_from_edge_index
+    get_adj_mat_from_edge_index,
+
+    print_gpu_mem,
+    sizeof_fmt,
 )
 from utils.train import get_scheduler_fn, get_scheduler_step_type
 from utils.config import TrainConfig, load_config, configs_dir
@@ -45,10 +49,11 @@ def load_graph_data(dataset, device, batch_size, cfg):
         df = pd.read_csv(f)
 
     df["file_path"] = df["pt_file"].apply(lambda x: str(data_path / x))
-    file_list = df["file_path"].tolist()[:40]
+    file_list = df["file_path"].tolist()
 
     train_files, temp_files = train_test_split(file_list,  test_size=0.4, random_state=cfg.seed)
     val_files,   test_files = train_test_split(temp_files, test_size=0.5, random_state=cfg.seed)
+    # train_files, val_files, test_files = file_list[0:2], file_list[2:3], file_list[3:4]
 
     cfg["train_dataset_size"] = len(train_files)
     cfg["val_dataset_size"] = len(val_files)
@@ -234,6 +239,9 @@ def main(cfg):
     acc_fn = edge_and_r2_acc
 
     for i in range(start_epoch, epochs):
+        gc.collect()
+        torch.cuda.empty_cache()
+        
         mean_train_loss, mean_train_acc = train_one_epoch(train_dataloader, model, optimizer, loss_fn, acc_fn, scheduler, scheduler_step_type, i, writer)
 
         mean_val_loss, mean_val_acc = validate_model(val_dataloader, model, loss_fn, acc_fn, i)
@@ -289,24 +297,44 @@ def train_one_epoch(train_dataloader,
 
     model.train()
     for batch in tqdm(train_dataloader, desc=f"Train {i}"):
+        torch.cuda.empty_cache()
         optimizer.zero_grad()
-        loss, acc = single_step(model, batch, loss_fn, acc_fn, writer, i, index_train)
-        loss.backward()
+
+        if debug:
+            size_accum = 0
+            for file in batch.file_path:
+                file_path = Path(file)
+                size_accum += file_path.stat().st_size
+            print(f"{sizeof_fmt(size_accum)}", flush=True)
+
+        try:
+            loss, acc = single_step(model, batch, loss_fn, acc_fn, writer, i, index_train)
+        except torch.OutOfMemoryError as e:
+            for file in batch.file_path:
+                file_path = Path(file)
+                size = file_path.stat().st_size
+                print(f"{file}, {sizeof_fmt(size)}", flush=True)
+            raise e
+        
+        loss.backward(retain_graph=False)
         optimizer.step()
         if scheduler_step_type == "batch":
             scheduler.step()
-        tot_train_loss += loss.item() * batch.batch_size
+        tot_train_loss += loss.detach().cpu().item() * batch.batch_size
         tot_train_acc  += acc * batch.batch_size
         index_train    += batch.batch_size
 
         if debug:
+            print_gpu_mem(f"Train, Step: {global_step}, Epoch {i}")
+            
             for name, param in model.named_parameters():
                 writer.add_histogram(f"weights/{name}", param.data, global_step)
                 if param.grad is not None:
                     writer.add_histogram(f"grads/{name}", param.grad, global_step)
                     # Print ratio of how many gradients are zero
                     print(f"Step {global_step}, Param {name}, Grad Non-Zero Ratio: {torch.count_nonzero(param.grad) / param.grad.numel()}")
-            global_step += 1
+
+        global_step += 1
 
     mean_train_loss = tot_train_loss / index_train
     mean_train_acc  = tot_train_acc / index_train
@@ -314,7 +342,7 @@ def train_one_epoch(train_dataloader,
     if scheduler_step_type == "epoch":
             scheduler.step()
     
-    return mean_train_loss,mean_train_acc
+    return mean_train_loss, mean_train_acc
 
 def validate_model(val_dataloader, model, loss_fn, acc_fn, i):
     index_val = 0

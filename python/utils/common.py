@@ -83,3 +83,15 @@ def find_latest_file(directory: Path, pattern: str) -> Union[Path, None]:
         return None
     latest_file = max(files, key=lambda f: f.stat().st_mtime)
     return latest_file
+
+def print_gpu_mem(tag=""):
+    allocated = torch.cuda.memory_allocated() / 1024**3
+    reserved  = torch.cuda.memory_reserved()  / 1024**3
+    print(f"[{tag}] Allocated: {allocated:.2f} GiB | Reserved: {reserved:.2f} GiB")
+
+def sizeof_fmt(num, suffix="B"):
+    for unit in ("", "Ki", "Mi", "Gi", "Ti", "Pi", "Ei", "Zi"):
+        if abs(num) < 1024.0:
+            return f"{num:3.1f}{unit}{suffix}"
+        num /= 1024.0
+    return f"{num:.1f}Yi{suffix}"
