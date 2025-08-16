@@ -64,8 +64,9 @@ def load_devmap_data(dataset, device, batch_size, cfg):
     cfg["test_dataset_size"] = len(test_inputs)
 
     train_dataloader = DataLoader(DevmapDataset(train_inputs, train_devmap, device=device), batch_size=batch_size, shuffle=True)
-    val_dataloader   = DataLoader(DevmapDataset(val_inputs,   val_devmap,   device=device), batch_size=batch_size, shuffle=False)
-    test_dataloader  = DataLoader(DevmapDataset(test_inputs,  test_devmap,  device=device), batch_size=batch_size, shuffle=False)
+    mean_std_dict = train_dataloader.dataset.mean_std_dict
+    val_dataloader   = DataLoader(DevmapDataset(val_inputs,   val_devmap,   device=device, mean_std_dict=mean_std_dict), batch_size=batch_size, shuffle=False)
+    test_dataloader  = DataLoader(DevmapDataset(test_inputs,  test_devmap,  device=device, mean_std_dict=mean_std_dict), batch_size=batch_size, shuffle=False)
 
     return train_dataloader, val_dataloader, test_dataloader
 
