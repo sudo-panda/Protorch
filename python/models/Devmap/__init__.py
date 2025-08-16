@@ -1,1 +1,1 @@
-from .model import DevmapModel
+from .model import DevmapE2EModel

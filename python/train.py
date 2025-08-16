@@ -18,7 +18,6 @@ from torch.utils.tensorboard import SummaryWriter
 from torch_geometric.loader import DataLoader
 
 from utils.paths import runs_dir, get_data_paths
-from utils.dataset import GraphDataset
 from utils.common import (
     find_latest_run_dir, 
     find_latest_wgts, 
@@ -33,8 +32,10 @@ from utils.common import (
     print_gpu_mem,
     sizeof_fmt,
 )
-from utils.train import get_scheduler_fn, get_scheduler_step_type
+from utils.train import create_scheduler, get_scheduler_step_type, create_optimizer
 from utils.config import TrainConfig, load_config, configs_dir
+
+from utils.dataset import GraphDataset
 from models.GraMI import GraMIModel, GraMI_loss, edge_and_r2_acc
 
 
@@ -65,7 +66,7 @@ def load_graph_data(dataset, device, batch_size, cfg):
 
     return train_dataloader, val_dataloader, test_dataloader
 
-def load_model(model_name, data_shapes, cfg):
+def load_training_modules(model_name, data_shapes, cfg):
     train_from_checkpoint = cfg.train_from_checkpoint
     run_dir = runs_dir / get_log_dir_name(model_name)
 
@@ -108,9 +109,10 @@ def load_model(model_name, data_shapes, cfg):
     device = cfg.device
     model = GraMIModel(model_config, data_shapes)
 
-    optimizer = create_optimizer(cfg, model)
+    optimizer = create_optimizer(cfg.optimizer, model, cfg.learning_rate, cfg.weight_decay)
 
-    scheduler = create_scheduler(cfg, optimizer)
+    total_training_steps = cfg.epochs * ((cfg.train_dataset_size - 1) // cfg.batch_size + 1)
+    scheduler = create_scheduler(cfg.scheduler, optimizer, total_training_steps)
     scaler = None
 
     valid_acc, start_epoch = restore_training_state(
@@ -121,17 +123,6 @@ def load_model(model_name, data_shapes, cfg):
     cfg.save(run_dir / f"config.yaml")
 
     return model, optimizer, scheduler, scaler, start_epoch, valid_acc, run_dir
-
-
-def create_optimizer(cfg, model):
-    opt_name, lr, decay = cfg.optimizer, cfg.learning_rate, cfg.weight_decay
-    if opt_name == "AdamW":
-        optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=decay)
-    elif opt_name == "Adam":
-        optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=decay)
-    else:
-        raise NotImplementedError(f"Optimizer {opt_name} is not implemented")
-    return optimizer
 
 def restore_training_state(cfg, prev_cfg, save_file, model, optimizer, scheduler):
     opt_name, lr, decay, device = cfg.optimizer, cfg.learning_rate, cfg.weight_decay, cfg.device
@@ -179,35 +170,6 @@ def restore_training_state(cfg, prev_cfg, save_file, model, optimizer, scheduler
             random.setstate(saved_state["rng_state"]["python"])
     return valid_acc, start_epoch
 
-def create_scheduler(cfg, optimizer):
-    scheduler = None
-    if cfg.scheduler is not None:
-        assert cfg.scheduler.get("name") is not None, "Scheduler name must be provided in the config"
-        scheduler_cfg = cfg.scheduler.copy()
-        scheduler_name = scheduler_cfg["name"]
-        del scheduler_cfg["name"]
-
-        total_training_steps = cfg.epochs * ((cfg.train_dataset_size - 1) // cfg.batch_size + 1)
-        if scheduler_cfg.get("num_warmup_steps") is not None:
-            num_warmup_steps = scheduler_cfg["num_warmup_steps"]
-            del scheduler_cfg["num_warmup_steps"]
-        elif scheduler_cfg.get("warmup_ratio") is not None:
-            num_warmup_steps = int(scheduler_cfg["warmup_ratio"] * total_training_steps)
-            del scheduler_cfg["warmup_ratio"]
-        else:
-            # Default warmup ratio of 5%
-            num_warmup_steps = int(total_training_steps * 0.05)
-        
-        scheduler = get_scheduler_fn(
-            scheduler_name,
-            optimizer,
-            num_warmup_steps=num_warmup_steps,
-            num_training_steps=total_training_steps,
-            **scheduler_cfg
-        )
-        
-    return scheduler
-
 def get_single_accuracy_metric(acc):
     if isinstance(acc, np.ndarray) and len(acc) > 0:
         return acc[0]
@@ -227,7 +189,8 @@ def main(cfg):
     data_sample = next(iter(train_dataloader))
     data_shapes = get_data_shape(data_sample)
 
-    model, optimizer, scheduler, scaler, start_epoch, best_valid_acc, run_dir = load_model(model_name, data_shapes, cfg)
+    model, optimizer, scheduler, scaler, start_epoch, best_valid_acc, run_dir = \
+        load_training_modules(model_name, data_shapes, cfg)
 
     writer = SummaryWriter(log_dir=run_dir)
     if best_valid_acc is not None:
@@ -235,7 +198,11 @@ def main(cfg):
 
     scheduler_step_type = get_scheduler_step_type(scheduler)
     loss_fn = lambda X, X_hat, adj_mat, V, A, edge_logits, X_hat_prime, X_prime: \
-        GraMI_loss(X, X_hat, adj_mat, V, A, edge_logits, X_hat_prime, X_prime, variational=model.is_variational)
+        GraMI_loss(X, X_hat, adj_mat, V, A, edge_logits, 
+                   X_hat_prime, X_prime, 
+                   variational=model.is_variational,
+                   lambdas=cfg.loss_config["lambdas"],
+                   betas=cfg.loss_config["betas"])
     acc_fn = edge_and_r2_acc
 
     for i in range(start_epoch, epochs):
@@ -443,6 +410,7 @@ if __name__ == "__main__":
                     print(f"Overriding config value loss_config[{loss_key}] with {arg_v}")
                     cfg.__dict__["loss_config"][loss_key] = args.__dict__[arg_k]
                 else:
+                    print(f"Overriding config value {arg_k} with {arg_v}")
                     cfg.__dict__[arg_k] = args.__dict__[arg_k]
     
     debug = args.debug

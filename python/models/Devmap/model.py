@@ -15,9 +15,9 @@ class DevmapClassifier(nn.Module):
     def forward(self, x):
         return self.linear(x)
 
-class DevmapModel(nn.Module):
+class DevmapE2EModel(nn.Module):
     def __init__(self, config, data_shapes):
-        super(DevmapModel, self).__init__()
+        super(DevmapE2EModel, self).__init__()
         self.config = config
 
         self.node_order = list(data_shapes["x_dict"].keys())

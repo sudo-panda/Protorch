@@ -55,7 +55,7 @@ def GraMI_loss(X, X_hat, adj_mat, V, A, edge_logits,
     loss = lambdas[0] * loss_edge + lambdas[1] * loss_attr + lambdas[2] * loss_rmse
     return loss
 
-def edge_and_r2_acc(X, adj_mat, edge_logits, X_prime):
+def edge_and_r2_acc(X, adj_mat, edge_logits, X_prime) -> np.ndarray:
     """
     Compute:
       - edge_acc: average binary‐accuracy over all edge types

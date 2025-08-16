@@ -1,3 +1,4 @@
+import torch
 from transformers import get_scheduler as hf_get_scheduler
 from torch.optim.lr_scheduler import (
     StepLR, MultiStepLR, ExponentialLR, ReduceLROnPlateau,
@@ -86,6 +87,35 @@ def get_scheduler_fn(
     else:
         raise NotImplementedError(f"Scheduler '{scheduler_name}' is not implemented.")
 
+def create_scheduler(scheduler_cfg, optimizer, total_training_steps):
+    scheduler = None
+    if scheduler_cfg is not None:
+        assert scheduler_cfg.get("name") is not None, "Scheduler name must be provided in the config"
+        scheduler_cfg = scheduler_cfg.copy()
+        scheduler_name = scheduler_cfg["name"]
+        del scheduler_cfg["name"]
+
+        
+        if scheduler_cfg.get("num_warmup_steps") is not None:
+            num_warmup_steps = scheduler_cfg["num_warmup_steps"]
+            del scheduler_cfg["num_warmup_steps"]
+        elif scheduler_cfg.get("warmup_ratio") is not None:
+            num_warmup_steps = int(scheduler_cfg["warmup_ratio"] * total_training_steps)
+            del scheduler_cfg["warmup_ratio"]
+        else:
+            # Default warmup ratio of 5%
+            num_warmup_steps = int(total_training_steps * 0.05)
+        
+        scheduler = get_scheduler_fn(
+            scheduler_name,
+            optimizer,
+            num_warmup_steps=num_warmup_steps,
+            num_training_steps=total_training_steps,
+            **scheduler_cfg
+        )
+        
+    return scheduler
+
 def get_scheduler_step_type(scheduler):
     """
     Returns a string describing when to call scheduler.step():
@@ -110,3 +140,12 @@ def get_scheduler_step_type(scheduler):
         return "epoch"
 
     return None
+
+def create_optimizer(opt_name, model, lr, decay):
+    if opt_name == "AdamW":
+        optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=decay)
+    elif opt_name == "Adam":
+        optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=decay)
+    else:
+        raise NotImplementedError(f"Optimizer {opt_name} is not implemented")
+    return optimizer
