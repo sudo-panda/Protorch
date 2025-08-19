@@ -2,8 +2,8 @@
 #flux: -N 1
 #flux: -n 1
 #flux: -g 1
-#flux: -t 6h
-#flux: --job-name=devmap_train
+#flux: -t 12h
+#flux: --job-name=devmap_cls_train
 #flux: --output=logs/flux-{{id.dec}}-out.log
 #flux: --error=logs/flux-{{id.dec}}-{{id}}.log
 set -eo pipefail
@@ -33,7 +33,7 @@ else
 fi
 
 echo "Config File Name: $CONFIG_NAME"
-python train_devmap.py --config $@
+python train_devmap_cls.py --config $@
 
 
 echo "END TIME: $(date)"

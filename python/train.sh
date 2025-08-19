@@ -2,8 +2,8 @@
 #flux: -N 1
 #flux: -n 1
 #flux: -g 1
-#flux: -t 6h
-#flux: --job-name=devmap_train
+#flux: -t 12h
+#flux: --job-name=GraMI_train
 #flux: --output=logs/flux-{{id.dec}}-out.log
 #flux: --error=logs/flux-{{id.dec}}-{{id}}.log
 set -eo pipefail

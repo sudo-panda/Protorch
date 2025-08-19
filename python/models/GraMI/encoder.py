@@ -142,6 +142,7 @@ class GraMIEncoder(nn.Module):
     def __init__(self, config, data_shapes):
         super(GraMIEncoder, self).__init__()
         self.config = config
+        data_shapes = data_shapes.copy()
 
         transforms   = self.config["transforms"]
         attr_enc_cfg = self.config["attribute_encoder"]
@@ -231,9 +232,11 @@ class GraMIEncoder(nn.Module):
     def get_output_dim(self):
         return self.attribute_encoder.get_output_dim()
 
-    def get_output_shape(self, data_shapes):
-        x_shape = self.transforms.get_output_shape(data_shapes)
-        x_tile_shape = self.init_layers.get_output_shape(data_shapes)
+    def get_output_shape(self, data_shapes: dict):
+        data_shapes = data_shapes.copy()
+        x_shape = self.transforms.get_output_shape(data_shapes["x_dict"])
+        x_tile_shape = self.init_layers.get_output_shape(x_shape)
+        data_shapes["x_dict"] = x_tile_shape
         X_t_shape = GraMIEncoder.get_X_t_shape(data_shapes, self.node_order)
         n_A_shape = self.attribute_encoder.get_output_shape(X_t_shape)
         n_V_shape = self.node_encoder.get_output_shape(x_shape)

@@ -43,7 +43,7 @@ class DevmapDataset(Dataset):
 
             mean_std_dict = {}
             for k, lst in stats.items():
-                all_values = torch.tensor(lst)  # shape: [num_samples, feature_len]
+                all_values = torch.tensor(lst, dtype=torch.float32)  # shape: [num_samples, feature_len]
                 mean = all_values.mean(dim=0)
                 std = all_values.std(dim=0)
                 std = 1.0 if std == 0 else std
@@ -60,7 +60,7 @@ class DevmapDataset(Dataset):
     def __len__(self):
         return len(self.input_list)
 
-    def __getitem__(self, idx):
+    def __getitem__(self, idx):  # type: ignore
         with open(self.input_list[idx]["file_path"], "rb") as f:
             data: HeteroData = torch.load(f, weights_only=False)
             data.to(device=self.device)

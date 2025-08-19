@@ -6,12 +6,12 @@ from torch_geometric.nn import global_add_pool
 from torch_geometric.data import HeteroData
 
 class DevmapClassifier(nn.Module):
-    def __init__(self, config, enc_input_dim, enc_node_types):
+    def __init__(self, config, enc_output_dim, enc_node_types):
         super(DevmapClassifier, self).__init__()
         self.config = config
         self.node_order = sorted(enc_node_types)
 
-        self.pooled_dim = enc_input_dim * (len(self.node_order) + 1)
+        self.pooled_dim = enc_output_dim * (len(self.node_order) + 1)
         self.mlp_input_dim = self.pooled_dim + 6 # +6 for comp, mem, localmem, coalesced, transfer, wgsize
         self.mlp = MLP(config, self.mlp_input_dim)
 

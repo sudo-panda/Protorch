@@ -32,7 +32,7 @@ from utils.common import (
     print_gpu_mem,
     sizeof_fmt,
 )
-from utils.train import create_scheduler, get_scheduler_step_type, create_optimizer
+from utils.train import create_scheduler, get_scheduler_step_type, create_optimizer, log_config
 from utils.config import TrainConfig, load_config, configs_dir
 
 from utils.dataset import GraphDataset
@@ -70,21 +70,25 @@ def load_training_modules(model_name, data_shapes, cfg):
     train_from_checkpoint = cfg.train_from_checkpoint
     run_dir = runs_dir / get_log_dir_name(model_name)
 
-    prev_run_dir = None
+    save_file, prev_run_dir, prev_cfg = None, None, None
     if isinstance(train_from_checkpoint, bool) and train_from_checkpoint == True:
         prev_run_dir = find_latest_run_dir(model_name)
     elif isinstance(train_from_checkpoint, str):
-        prev_run_dir = runs_dir / train_from_checkpoint
-        assert prev_run_dir.exists(), f"Run directory does not exist:\n\t{prev_run_dir}\n\tPlease give the right checkpoint directory name in train_from_checkpoint"
+        save_file = Path(train_from_checkpoint).absolute()
+        assert save_file.exists() and save_file.is_file(), f"Checkpoint file does not exist or is not a file:\n\t{save_file}\n  Please give the right checkpoint file name in train_from_checkpoint"
+        prev_run_dir = save_file.parent
+        assert prev_run_dir.exists() and prev_run_dir.is_dir(), f"Run directory does not exist:\n\t{prev_run_dir}\n\tPlease give the right checkpoint directory name in train_from_checkpoint"
 
-    save_file, prev_cfg = None, None
     if prev_run_dir is not None: 
         # Found existing run directory
         assert prev_run_dir.is_dir(), f"Expected run_dir ({prev_run_dir}) to be a folder"
 
         model_arch_file = prev_run_dir / f"{model_name}.json"
         print(f"Found existing run directory:\n\t{prev_run_dir}\n\twith model architecture file {model_arch_file.name}")
-        save_file = find_latest_wgts(prev_run_dir, model_name)
+        if save_file is None:
+            save_file = find_latest_wgts(prev_run_dir, model_name)
+            assert save_file is not None and save_file.exists(), f"Weight file not found in prev run dir:\n\t{prev_run_dir}"
+        
         copy_file_to_dir(model_arch_file, run_dir)
 
         prev_config_file = find_latest_file(prev_run_dir, "config*.yaml")
@@ -107,7 +111,8 @@ def load_training_modules(model_name, data_shapes, cfg):
         model_config = json.load(f)
 
     device = cfg.device
-    model = GraMIModel(model_config, data_shapes)
+    global ratio
+    model = GraMIModel(model_config, data_shapes, ratio=cfg.ratio)
 
     optimizer = create_optimizer(cfg.optimizer, model, cfg.learning_rate, cfg.weight_decay)
 
@@ -193,6 +198,8 @@ def main(cfg):
         load_training_modules(model_name, data_shapes, cfg)
 
     writer = SummaryWriter(log_dir=run_dir)
+    log_config(writer, cfg)
+    
     if best_valid_acc is not None:
         print(f"  Best Valid Acc: {best_valid_acc}")
 
@@ -218,8 +225,7 @@ def main(cfg):
         elif scheduler_step_type == "metric_max":
             scheduler.step(mean_val_acc)
 
-        acc_metric = get_single_accuracy_metric(mean_val_acc)
-        if best_valid_acc is None or acc_metric > best_valid_acc:
+        if best_valid_acc is None or get_single_accuracy_metric(mean_val_acc) > get_single_accuracy_metric(best_valid_acc):
             print("Improved validation accuracy! Saving ...", end="\t", flush=True)
             torch.save(
                 {
@@ -239,7 +245,7 @@ def main(cfg):
                 run_dir / f"{model_name}_{get_timestamp()}.pt"
             )
 
-            best_valid_acc = acc_metric
+            best_valid_acc = mean_val_acc
             print("Done", flush=True)
 
         log_training_metrics(writer, i, mean_train_loss, mean_train_acc, 
@@ -385,11 +391,12 @@ if __name__ == "__main__":
     parser.add_argument('--epochs', type=int, default=None)
     parser.add_argument('--learning_rate', type=float, default=None)
     parser.add_argument('--weight_decay', type=float, default=None)
-    parser.add_argument('--train_from_checkpoint', type=bool, default=None)
+    parser.add_argument('--train_from_checkpoint', type=str, default=None)
     parser.add_argument('--optimizer', type=str, default=None)
     parser.add_argument('--scheduler', type=str, default=None)
     parser.add_argument('--loss_lambdas', type=str, default=None)
     parser.add_argument('--loss_betas', type=str, default=None)
+    parser.add_argument('--ratio', type=float, default=None)
     args = parser.parse_args()
 
     # if args.config:
@@ -404,6 +411,11 @@ if __name__ == "__main__":
             if arg_v is not None:
                 if arg_k in ['scheduler', 'loss_lambdas', 'loss_betas']:
                     args.__dict__[arg_k] = json.loads(arg_v)
+                elif arg_k in ['train_from_checkpoint']:
+                    if arg_v.lower() == "true":
+                        args.__dict__[arg_k] = True
+                    elif arg_v.lower() == "false":
+                        args.__dict__[arg_k] = False
 
                 if arg_k in ["loss_lambdas", "loss_betas"]:
                     loss_key = arg_k.split("_")[1]

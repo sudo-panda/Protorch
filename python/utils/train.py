@@ -1,9 +1,14 @@
+import numpy as np
 import torch
-from transformers import get_scheduler as hf_get_scheduler
+from transformers.optimization import get_scheduler as hf_get_scheduler
 from torch.optim.lr_scheduler import (
     StepLR, MultiStepLR, ExponentialLR, ReduceLROnPlateau,
     OneCycleLR, CyclicLR, LambdaLR
 )
+from torch.utils.tensorboard import SummaryWriter
+
+from dataclasses import asdict, is_dataclass
+import yaml
 
 def get_scheduler_fn(
     scheduler_name,
@@ -149,3 +154,37 @@ def create_optimizer(opt_name, model, lr, decay):
     else:
         raise NotImplementedError(f"Optimizer {opt_name} is not implemented")
     return optimizer
+
+def floats_to_filename(data, max_items=5):
+    def format_num(x):
+        return f"{x:.2f}"  # keep dot, round to 2 decimals
+    
+    if isinstance(data, float):
+        filename = format_num(data)
+    
+    elif isinstance(data, np.ndarray):
+        flat = data.flatten()
+        items = [format_num(x) for x in flat[:max_items]]
+        filename = "_".join(items)
+        if flat.size > max_items:
+            filename += f"_len{flat.size}"
+    
+    elif isinstance(data, torch.Tensor):
+        flat = data.flatten().tolist()
+        items = [format_num(x) for x in flat[:max_items]]
+        filename = "_".join(items)
+        if len(flat) > max_items:
+            filename += f"_len{len(flat)}"
+    
+    else:
+        raise TypeError("Unsupported type")
+    
+    return filename
+
+def log_config(writer: SummaryWriter, cfg, tag: str = "config"):
+    if not is_dataclass(cfg):
+        raise TypeError("cfg must be a dataclass instance")
+
+    cfg_dict = asdict(cfg)
+    cfg_json = yaml.dump(cfg_dict, sort_keys=False, default_flow_style=False)
+    writer.add_text(tag, f"```yaml\n{cfg_json}\n```")

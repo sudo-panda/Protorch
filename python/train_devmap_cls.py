@@ -1,75 +1,70 @@
 import argparse
 import gc
+import json
 from pathlib import Path
 import pickle
-import os
-import json
-from tqdm import tqdm
-
-import pandas as pd
-from sklearn.model_selection import train_test_split
-
 import random
 import numpy as np
 import torch
 import torch.nn as nn
+from tqdm import tqdm
+
 from torch.utils.tensorboard import SummaryWriter
 
-from torch_geometric.loader import DataLoader
-
-from utils.paths import runs_dir, get_data_paths
+from models.Devmap.model import DevmapClassifier
+from models.GraMI import GraMIModel
+from models.GraMI.encoder import GraMIEncoder
 from utils.common import (
-    find_latest_run_dir, 
-    find_latest_wgts, 
-    get_data_shape, 
-    get_log_dir_name, 
     copy_file_to_dir,
+    find_latest_file, 
+    find_latest_run_dir, 
+    find_latest_wgts,
+    get_data_shape, 
+    get_log_dir_name,
     make_deterministic,
-    get_timestamp,
-    find_latest_file,
-
     print_gpu_mem,
-    sizeof_fmt,
+    sizeof_fmt
 )
-from utils.train import create_scheduler, get_scheduler_step_type, create_optimizer
-from utils.config import TrainConfig, load_config, configs_dir
+from utils.config import TrainConfig, configs_dir, load_config
+from utils.paths import runs_dir
 
-from utils.dataset import DevmapDataset
-from models.Devmap import DevmapE2EModel
 
+from train_devmap import load_devmap_data
+from utils.train import create_optimizer, create_scheduler, floats_to_filename, get_scheduler_step_type, log_config
 
 global_step = 0
 debug = False
 
-def load_devmap_data(dataset, device, batch_size, cfg):
-    ################ Load data ################
-    _, data_path, csv_file = get_data_paths(dataset)
+def load_GraMI_encoder(model_name, data_shapes, device, load_run_dir=None, save_file=None):
+    if load_run_dir is None:
+        load_run_dir = find_latest_run_dir(model_name)
+    assert load_run_dir is not None, f"Run directory not found for model: {model_name}"
+    model_arch_file = load_run_dir / f"{model_name}.json"
 
-    with open(csv_file) as f:
-        df = pd.read_csv(f)
+    print(f"Found GraMI run directory:\n\t{load_run_dir}\n\twith model architecture file {model_arch_file.name}")
 
-    df["file_path"] = df["pt_file"].apply(lambda x: str(data_path / x))
-    input_list = df.reset_index()[["file_path", "comp", "rational", "mem", "localmem", "coalesced", "atomic", "transfer", "wgsize"]].to_dict('records')
+    if save_file is None:
+        save_file = find_latest_wgts(load_run_dir, model_name)
+    assert save_file is not None and save_file.exists(), f"Weights file not found in run dir:\n\t{load_run_dir}"
 
-    devmap_list = df["device"].tolist()
-    assert len(input_list) == len(devmap_list), "File list and device list must have the same length"
+    prev_config_file = find_latest_file(load_run_dir, "config*.yaml")
+    assert prev_config_file is not None, f"Config file not found in prev run dir:\n\t{load_run_dir}"
 
-    train_inputs, temp_inputs, train_devmap, temp_devmap = train_test_split(input_list,  devmap_list, test_size=0.4, random_state=cfg.seed)
-    val_inputs,   test_inputs, val_devmap,   test_devmap = train_test_split(temp_inputs, temp_devmap, test_size=0.5, random_state=cfg.seed)
-    # train_files, val_files, test_files = file_list[0:2], file_list[2:3], file_list[3:4]
-    # train_devmap, val_devmap, test_devmap = devmap_list[0:2], devmap_list[2:3], devmap_list[3:4]
+    with open(model_arch_file) as f:
+        model_config = json.load(f)
 
-    cfg["train_dataset_size"] = len(train_inputs)
-    cfg["val_dataset_size"] = len(val_inputs)
-    cfg["test_dataset_size"] = len(test_inputs)
+    model = GraMIModel(model_config, data_shapes)
+    model.to(device)
 
-    train_dataloader = DataLoader(DevmapDataset(train_inputs, train_devmap, device=device), batch_size=batch_size, shuffle=True)
-    assert isinstance(train_dataloader.dataset, DevmapDataset), "Expected train_dataloader.dataset to be an instance of DevmapDataset"
-    mean_std_dict = train_dataloader.dataset.mean_std_dict
-    val_dataloader   = DataLoader(DevmapDataset(val_inputs,   val_devmap,   device=device, mean_std_dict=mean_std_dict), batch_size=batch_size, shuffle=False)
-    test_dataloader  = DataLoader(DevmapDataset(test_inputs,  test_devmap,  device=device, mean_std_dict=mean_std_dict), batch_size=batch_size, shuffle=False)
+    try:
+        saved_state = torch.load(save_file, map_location=device)
+    except pickle.UnpicklingError:
+        saved_state = torch.load(save_file, map_location=device, weights_only=False)
 
-    return train_dataloader, val_dataloader, test_dataloader
+    pretrained_weights_file = saved_state["model"]
+    model.load_state_dict(pretrained_weights_file, strict=True)
+
+    return model.encoder
 
 def load_training_modules(model_name, data_shapes, cfg):
     train_from_checkpoint = cfg.train_from_checkpoint
@@ -116,7 +111,24 @@ def load_training_modules(model_name, data_shapes, cfg):
         model_config = json.load(f)
 
     device = cfg.device
-    model = DevmapE2EModel(model_config, data_shapes)
+    if "save_file" in model_config["GraMI"]:
+        GraMI_save_file = Path(model_config["GraMI"]["save_file"]).absolute()
+        assert GraMI_save_file.exists(), f"GraMI save file does not exist:\n\t{str(GraMI_save_file)}\n Check the model arch file: {str(model_arch_file)}"
+        assert GraMI_save_file.is_file(), f"GraMI save file is not a file:\n\t{str(GraMI_save_file)}\n Check the model arch file: {str(model_arch_file)}"
+        GraMI_run_dir = GraMI_save_file.parent.absolute()
+        assert GraMI_run_dir.exists() and GraMI_run_dir.is_dir(), f"GraMI run directory does not exist:\n\t{str(GraMI_run_dir)}\n Check the model arch file:{str(model_arch_file)}"
+    elif "run_dir" in model_config["GraMI"]:
+        GraMI_run_dir = Path(model_config["GraMI"]["run_dir"]).absolute()
+        assert GraMI_run_dir.exists() and GraMI_run_dir.is_dir(), f"GraMI run directory does not exist:\n\t{str(GraMI_run_dir)}\n Check the model arch file:{str(model_arch_file)}"
+        GraMI_save_file = None
+    else:
+        GraMI_run_dir = None
+        GraMI_save_file = None
+
+    grami_enc = load_GraMI_encoder(model_config["GraMI"]["arch"], data_shapes, 
+                                   device, load_run_dir=GraMI_run_dir, save_file=GraMI_save_file)
+
+    model = DevmapClassifier(model_config["classifier"], grami_enc.get_output_dim(), list(grami_enc.get_output_shape(data_shapes)["n_V"].keys()))
 
     optimizer = create_optimizer(cfg.optimizer, model, cfg.learning_rate, cfg.weight_decay)
 
@@ -131,7 +143,7 @@ def load_training_modules(model_name, data_shapes, cfg):
 
     cfg.save(run_dir / f"config.yaml")
 
-    return model, optimizer, scheduler, scaler, start_epoch, valid_acc, run_dir
+    return grami_enc, model, optimizer, scheduler, scaler, start_epoch, valid_acc, run_dir
 
 def restore_training_state(cfg, prev_cfg, save_file, model, optimizer, scheduler):
     opt_name, lr, decay, device = cfg.optimizer, cfg.learning_rate, cfg.weight_decay, cfg.device
@@ -179,13 +191,6 @@ def restore_training_state(cfg, prev_cfg, save_file, model, optimizer, scheduler
             random.setstate(saved_state["rng_state"]["python"])
     return valid_acc, start_epoch
 
-def get_single_accuracy_metric(acc):
-    if isinstance(acc, np.ndarray) and len(acc) > 0:
-        return acc[0]
-    if isinstance(acc, float):
-        return acc
-    return 0.0
-
 def main(cfg):
     device, model_name, dataset, batch_size, epochs, lr, decay = (
         cfg.device, cfg.model_name, cfg.dataset, cfg.batch_size,  # type: ignore
@@ -198,7 +203,7 @@ def main(cfg):
     data_sample, _ = next(iter(train_dataloader))
     data_shapes = get_data_shape(data_sample)
 
-    model, optimizer, scheduler, scaler, start_epoch, best_valid_acc, run_dir = \
+    grami_enc, model, optimizer, scheduler, scaler, start_epoch, best_valid_acc, run_dir = \
         load_training_modules(model_name, data_shapes, cfg)
 
     writer = SummaryWriter(log_dir=run_dir)
@@ -209,22 +214,37 @@ def main(cfg):
     loss_fn = nn.BCELoss()
     acc_fn = lambda preds, labels: ((preds >= 0.5).to(torch.int32) == labels).type(torch.float32)
 
+    log_config(writer, cfg)
+
     for i in range(start_epoch, epochs):
         gc.collect()
         torch.cuda.empty_cache()
         
-        mean_train_loss, mean_train_acc = train_one_epoch(train_dataloader, model, optimizer, loss_fn, acc_fn, scheduler, scheduler_step_type, i, writer)
+        mean_train_loss, mean_train_acc = \
+            train_one_epoch(
+                train_dataloader, grami_enc, model, optimizer, 
+                loss_fn, acc_fn, scheduler, scheduler_step_type, 
+                i, writer)
 
-        mean_val_loss, mean_val_acc = validate_model(val_dataloader, model, loss_fn, acc_fn, i)
+        mean_val_loss, mean_val_acc = \
+            validate_model(val_dataloader, grami_enc, model, loss_fn, acc_fn, i)
 
         if scheduler_step_type == "metric_min":
             scheduler.step(mean_val_loss) # pyright: ignore[reportOptionalMemberAccess]
         elif scheduler_step_type == "metric_max":
             scheduler.step(mean_val_acc)  # pyright: ignore[reportOptionalMemberAccess]
 
-        acc_metric = get_single_accuracy_metric(mean_val_acc)
-        if best_valid_acc is None or acc_metric > best_valid_acc:
-            print("Improved validation accuracy! Saving ...", end="\t", flush=True)
+        save_file_name = None
+        if best_valid_acc is None or get_single_accuracy_metric(mean_val_acc) > get_single_accuracy_metric(best_valid_acc):
+            print(f"Improved validation accuracy (prev: {best_valid_acc}, curr: {mean_val_acc})! Saving ...", end="\t", flush=True)
+            best_valid_acc = mean_val_acc
+            save_file_name = f"{model_name}_{i:07d}_{floats_to_filename(best_valid_acc)}.pt"
+        elif i % 100 == 0:
+            print(f"Saving for epoch checkpointing (acc: {mean_val_acc})...", end="\t", flush=True)
+            save_file_name = f"{i:07d}_{model_name}.pt"
+
+
+        if save_file_name is not None:
             torch.save(
                 {
                     "model": model.state_dict(),
@@ -240,11 +260,11 @@ def main(cfg):
                         "python_seed": random.getstate()[1][0],
                     }
                 },
-                run_dir / f"{model_name}_{get_timestamp()}.pt"
+                run_dir / save_file_name
             )
 
-            best_valid_acc = acc_metric
             print("Done", flush=True)
+
 
         log_training_metrics(writer, i, mean_train_loss, mean_train_acc, 
                              mean_val_loss, mean_val_acc, 
@@ -252,12 +272,13 @@ def main(cfg):
 
     writer.close()
 
-def train_one_epoch(train_dataloader, 
-                    model, 
-                    optimizer, 
-                    loss_fn, 
-                    acc_fn, 
-                    scheduler, 
+def train_one_epoch(train_dataloader,
+                    grami_enc,
+                    model,
+                    optimizer,
+                    loss_fn,
+                    acc_fn,
+                    scheduler,
                     scheduler_step_type, 
                     i, 
                     writer):
@@ -279,7 +300,7 @@ def train_one_epoch(train_dataloader,
             print(f"{sizeof_fmt(size_accum)}", flush=True)
 
         try:
-            loss, acc = single_step(model, batch, labels, loss_fn, acc_fn)
+            loss, acc = single_step(grami_enc, model, batch, labels, loss_fn, acc_fn)
         except torch.OutOfMemoryError as e:
             for file in batch.file_path:
                 file_path = Path(file)
@@ -315,7 +336,7 @@ def train_one_epoch(train_dataloader,
     
     return mean_train_loss, mean_train_acc
 
-def validate_model(val_dataloader, model, loss_fn, acc_fn, i):
+def validate_model(val_dataloader, grami_enc, model, loss_fn, acc_fn, i):
     index_val = 0
     tot_val_loss = 0
     tot_val_acc = 0
@@ -323,7 +344,7 @@ def validate_model(val_dataloader, model, loss_fn, acc_fn, i):
     model.eval()
     with torch.no_grad():
         for batch, labels in tqdm(val_dataloader, desc=f"Valid {i}"):
-            loss, acc = single_step(model, batch, labels, loss_fn, acc_fn)
+            loss, acc = single_step(grami_enc, model, batch, labels, loss_fn, acc_fn)
             tot_val_loss += loss.item() * batch.batch_size
             tot_val_acc  += acc * batch.batch_size
             index_val    += batch.batch_size
@@ -332,8 +353,22 @@ def validate_model(val_dataloader, model, loss_fn, acc_fn, i):
     mean_val_acc    = tot_val_acc / index_val
     return mean_val_loss, mean_val_acc
 
-def single_step(model, batch, labels, loss_fn, acc_fn):
-    logits = model(batch)
+def single_step(grami_enc: GraMIEncoder, model, batch, labels, loss_fn, acc_fn):
+    _, _, n_A, n_V = grami_enc(batch)
+    if grami_enc.variational:
+        z_A = n_A[0]
+        z_V = n_V[0]
+    else:
+        z_A = n_A
+        z_V = n_V
+    
+    assert isinstance(model, DevmapClassifier)
+    logits = model(
+        z_A.detach(), {k: v.detach() for k, v in z_V.items()}, 
+        batch.comp, batch.mem, batch.localmem, 
+        batch.coalesced, batch.transfer, batch.wgsize, 
+        {k: batch[k].batch for k in z_V.keys()}
+    )
     probs = torch.sigmoid(logits)
     loss = loss_fn(probs, labels.to(torch.float32)).mean()
     acc = acc_fn(probs, labels).mean()
@@ -359,6 +394,13 @@ def get_current_lr(optimizer, scheduler):
     else:
         lr = optimizer.param_groups[0]["lr"]
     return lr
+
+def get_single_accuracy_metric(acc):
+    if isinstance(acc, np.ndarray) and len(acc) > 0:
+        return acc[0]
+    if isinstance(acc, torch.Tensor) and acc.numel() > 0 and acc.ndim != 0:
+        return acc[0]
+    return acc
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

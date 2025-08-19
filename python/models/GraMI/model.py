@@ -8,24 +8,26 @@ from models.GraMI.decoder import GraMIDecoder
 
 
 class GraMIReparameterize(nn.Module):
-    def __init__(self):
+    def __init__(self, ratio):
         super(GraMIReparameterize, self).__init__()
+        self.ratio = ratio
 
     @staticmethod
-    def reparameterize(z):
+    def reparameterize(z, ratio):
         z_mu, z_var = z
         eps = torch.randn_like(z_mu)
-        return z_mu + eps * torch.exp(0.5 * z_var)
+        return z_mu + torch.exp(0.5 * z_var) * eps * ratio
 
     def forward(self, z_A: tuple[torch.Tensor], z_V: dict[str, tuple[torch.Tensor]]):
         return \
-            GraMIReparameterize.reparameterize(z_A), \
-            { node: GraMIReparameterize.reparameterize(z_v) for node, z_v in z_V.items()}
+            GraMIReparameterize.reparameterize(z_A, self.ratio), \
+            { node: GraMIReparameterize.reparameterize(z_v, self.ratio) for node, z_v in z_V.items()}
 
 class GraMIModel(nn.Module):
     def __init__(self, 
                  config: dict[str, dict], 
-                 data_shapes: dict[str, dict]):
+                 data_shapes: dict[str, dict],
+                 ratio=1.0):
         super(GraMIModel, self).__init__()
         self.config = config
 
@@ -35,7 +37,7 @@ class GraMIModel(nn.Module):
         self.encoder = GraMIEncoder(self.config, data_shapes)
 
         if self.is_variational:
-            self.reparameterize = GraMIReparameterize()
+            self.reparameterize = GraMIReparameterize(ratio)
 
         if "decoder" not in self.config:
             self.decoder_config = GraMIModel.invert_config(self.config)
