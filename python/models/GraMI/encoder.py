@@ -71,7 +71,9 @@ class GraMIAttributeEncoder(nn.Module):
 
 
         X_T_shape = [x_T.shape for x_T in X_T]
-        assert all([z.shape == self.get_output_shape(X_T_shape) for z in n_A]) if isinstance(n_A, tuple) else n_A.shape == self.get_output_shape(X_T_shape)
+        
+        assert all([z.shape == shape for z, shape in zip(n_A, self.get_output_shape(X_T_shape))]) if isinstance(n_A, tuple) else n_A.shape == self.get_output_shape(X_T_shape)
+     
         return n_A # (B, F, N)
 
     def get_output_dim(self):
@@ -86,7 +88,7 @@ class GraMIAttributeEncoder(nn.Module):
         X_T_pooled_shape = torch.Size([batch_size, X_T_shape[0][0], self.pool_dim * batch_size])
 
         if self.variational:
-            return self.mlp_mean.get_output_shape(X_T_pooled_shape)
+            return (self.mlp_mean.get_output_shape(X_T_pooled_shape), self.mlp_var.get_output_shape(X_T_pooled_shape))
 
         return self.mlp.get_output_shape(X_T_pooled_shape)
 

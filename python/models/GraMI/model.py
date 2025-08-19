@@ -27,7 +27,7 @@ class GraMIModel(nn.Module):
     def __init__(self, 
                  config: dict[str, dict], 
                  data_shapes: dict[str, dict],
-                 ratio=1.0):
+                 extra_config: dict[str, Any] = {"ratio": 1.0}):
         super(GraMIModel, self).__init__()
         self.config = config
 
@@ -37,7 +37,7 @@ class GraMIModel(nn.Module):
         self.encoder = GraMIEncoder(self.config, data_shapes)
 
         if self.is_variational:
-            self.reparameterize = GraMIReparameterize(ratio)
+            self.reparameterize = GraMIReparameterize(extra_config["ratio"])
 
         if "decoder" not in self.config:
             self.decoder_config = GraMIModel.invert_config(self.config)

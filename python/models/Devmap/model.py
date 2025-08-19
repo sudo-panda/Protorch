@@ -1,3 +1,4 @@
+from typing import Any
 from torch import nn
 import torch
 from models.common import MLP
@@ -6,12 +7,12 @@ from torch_geometric.nn import global_add_pool
 from torch_geometric.data import HeteroData
 
 class DevmapClassifier(nn.Module):
-    def __init__(self, config, enc_output_dim, enc_node_types):
+    def __init__(self, config, data_shapes, extra_config: dict[str, Any] = {}):
         super(DevmapClassifier, self).__init__()
         self.config = config
-        self.node_order = sorted(enc_node_types)
+        self.node_order = sorted(list(data_shapes["z_V"].keys()))
 
-        self.pooled_dim = enc_output_dim * (len(self.node_order) + 1)
+        self.pooled_dim = data_shapes["z_A"][-1] * (len(self.node_order) + 1)
         self.mlp_input_dim = self.pooled_dim + 6 # +6 for comp, mem, localmem, coalesced, transfer, wgsize
         self.mlp = MLP(config, self.mlp_input_dim)
 
@@ -34,15 +35,24 @@ class DevmapClassifier(nn.Module):
         return self.mlp(mlp_inp)
 
 class DevmapE2EModel(nn.Module):
-    def __init__(self, config, data_shapes):
+    def __init__(self, config, data_shapes, extra_config: dict[str, Any] = {}):
         super(DevmapE2EModel, self).__init__()
         self.config = config
 
-        self.node_order = list(data_shapes["x_dict"].keys())
-
         self.encoder = GraMIEncoder(config, data_shapes)
 
-        self.classifier = DevmapClassifier(config["classifier"], self.encoder.get_output_dim(), self.node_order)
+        output_shape = self.encoder.get_output_shape(data_shapes)
+
+        data_shapes = {}
+        if self.encoder.variational:
+            data_shapes["z_A"] = output_shape["n_A"][0]
+            data_shapes["z_V"] = {k: v[0] for k, v in output_shape["n_V"].items()}
+        else:
+            data_shapes["z_A"] = output_shape["n_A"]
+            data_shapes["z_V"] = output_shape["n_V"]
+
+        self.node_order = list(data_shapes["x_dict"].keys())
+        self.classifier = DevmapClassifier(config["classifier"], data_shapes)
 
     def forward(self, graph: HeteroData):
         _, _, z_A, z_V = self.encoder(graph)

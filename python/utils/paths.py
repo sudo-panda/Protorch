@@ -6,7 +6,7 @@ Protorch_python_path = utils_path.parent
 Protorch_path = Protorch_python_path.parent
 top_level_path = Protorch_path.parent
 models_path = Protorch_python_path / "models"
-runs_dir = Protorch_python_path / "runs"
+configs_dir = Protorch_python_path / "configs"
 GraMI_path = models_path / "GraMI"
 Devmap_path = models_path / "Devmap"
 

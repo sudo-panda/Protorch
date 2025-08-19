@@ -1,6 +1,6 @@
 from pathlib import Path
 import yaml
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional, Union, Any
 
 @dataclass
@@ -19,6 +19,7 @@ class TrainConfig:
     scheduler: Optional[dict] = None
     scaler: Optional[dict] = None
     loss_config: Optional[dict] = None
+    extra_config: dict = field(default_factory=dict)
 
     # For easy access only, is not setable
     training_mode: bool = True
@@ -56,6 +57,15 @@ class TrainConfig:
         with open(path, 'w') as f:
             yaml.dump(config_dict, f)
 
+    def dumps(self, **kwargs) -> str:
+        default_keys = ['device', 'model_name', 'seed']
+        train_cfg = {k: v for k, v in self.__dict__.items() if k not in default_keys and k != "training_mode"}
+        config_dict = {'train': train_cfg}
+        for key in default_keys:
+            config_dict[key] = self.__dict__[key]
+
+        return yaml.dump(config_dict, **kwargs)
+
     def __setitem__(self, name: str, value: Any) -> None:
         self.__dict__[name] = value
 
@@ -89,6 +99,8 @@ class TestConfig:
         with open(path, 'w') as f:
             yaml.dump(self.__dict__, f)
 
+    def dumps(self) -> str:
+        return yaml.dump(self.__dict__)
 
 def load_config(yaml_path: Path, train: bool = True) -> Union[TrainConfig, TestConfig]:
     with open(yaml_path, 'r') as f:
@@ -113,18 +125,3 @@ module_path = Path(__file__).parent.parent
 configs_dir = module_path / "configs"
 config_file = configs_dir / "config.yaml"
 cfg = None # load_flat_config(config_file)
-
-if __name__ == "__main__":
-    config_path = "/usr/WS2/LExperts/mltraining/Protorch/python/configs/devmap-v5.yaml"
-    train_cfg = load_config(config_path, train=True)
-    print(train_cfg)
-
-    test_cfg = load_config(config_path, train=False)
-    print(test_cfg)
-    
-    # Save the train config to a file
-    train_cfg.save("/tmp/train_config.yaml")
-
-    with open("/tmp/train_config.yaml", 'r') as f:
-        for line in f:
-            print(line.rstrip())
