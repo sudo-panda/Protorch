@@ -1,0 +1,20 @@
+device: cuda
+model_name: dmcls-graphhb-512-8
+seed: 42
+train:
+  dataset: devmap
+  epochs: 1000
+  batch_size: 16
+  world_size: 2
+  learning_rate: 0.001
+  weight_decay: 0.0001
+  train_from_checkpoint: false
+  optimizer: AdamW
+  scheduler:
+    name: linear
+test:
+  dataset: devmap
+  batch_size: 16
+  checkpoint:
+    dir: /tmp/checkpoints
+    file_name: devmap_test_checkpoint.pth
