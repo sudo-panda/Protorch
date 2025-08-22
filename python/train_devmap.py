@@ -62,7 +62,7 @@ def main(cfg, debug):
     loss_fn = nn.BCELoss()
     acc_fn = lambda preds, labels: ((preds >= 0.5).to(torch.int32) == labels).type(torch.float32)
 
-    single_step_fn = lambda model, data, loss_fn, acc_fn: \
+    single_step_fn = lambda model, data, loss_fn, acc_fn, epoch, data_index: \
         single_step(model, data[0], data[1], loss_fn, acc_fn)
 
     training_loop(cfg, debug, train_dl, val_dl, model, 

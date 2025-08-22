@@ -459,12 +459,15 @@ def train_one_epoch(single_step_fn, train_dataloader, model, optimizer, loss_fn,
             print(f"{sizeof_fmt(size_accum)}", flush=True)
 
         try:
-            loss, acc = single_step_fn(model, data, loss_fn, acc_fn)
+            loss, acc = single_step_fn(model, data, loss_fn, acc_fn, epoch, step)
         except torch.OutOfMemoryError as e:
+            total = 0
             for file in batch.file_path:
                 file_path = Path(file)
                 size = file_path.stat().st_size
+                total += size
                 print(f"{file}, {sizeof_fmt(size)}", flush=True)
+            print(f"Total batch size: {sizeof_fmt(total)}", flush=True)
             raise e
         
         loss.backward(retain_graph=False)
@@ -504,9 +507,9 @@ def validate_model(single_step_fn, val_dataloader, model, loss_fn, acc_fn, epoch
 
     model.eval()
     with torch.no_grad():
-        for data in tqdm(val_dataloader, desc=f"Valid {epoch}"):
+        for step, data in enumerate(tqdm(val_dataloader, desc=f"Valid {epoch}")):
             batch = data[0] if isinstance(data, list) else data
-            loss, acc = single_step_fn(model, data, loss_fn, acc_fn)
+            loss, acc = single_step_fn(model, data, loss_fn, acc_fn, epoch, step)
             tot_val_loss += loss.item() * batch.batch_size
             tot_val_acc  += acc * batch.batch_size
             index_val    += batch.batch_size

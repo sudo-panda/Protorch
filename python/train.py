@@ -64,8 +64,8 @@ def main(cfg, debug):
     acc_fn = edge_and_r2_acc
 
     # Single step
-    single_step_fn = lambda model, data, loss_fn, acc_fn: \
-        single_step(model, data, loss_fn, acc_fn, writer, epoch=None, data_index=None, debug=debug)
+    single_step_fn = lambda model, data, loss_fn, acc_fn, epoch, data_index: \
+        single_step(model, data, loss_fn, acc_fn, writer, epoch, data_index, debug=debug)
 
     # Loop
     training_loop(cfg, debug, train_dl, val_dl, model, 

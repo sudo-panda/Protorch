@@ -126,7 +126,7 @@ def main(cfg, debug):
     acc_fn = lambda preds, labels: ((preds >= 0.5).to(torch.int32) == labels).type(torch.float32)
 
     # Single step
-    single_step_fn = lambda model, data, loss_fn, acc_fn: \
+    single_step_fn = lambda model, data, loss_fn, acc_fn, epoch, data_index: \
         single_step(model, data[0], data[1], loss_fn, acc_fn, GraMI_enc)
 
     # Loop
