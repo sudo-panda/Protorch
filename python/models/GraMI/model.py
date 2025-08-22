@@ -16,7 +16,7 @@ class GraMIReparameterize(nn.Module):
     def reparameterize(z, ratio):
         z_mu, z_var = z
         eps = torch.randn_like(z_mu)
-        return z_mu + torch.exp(0.5 * z_var) * eps * ratio
+        return z_mu + torch.exp(0.5 * z_var) * eps * ratio, eps
 
     def forward(self, z_A: tuple[torch.Tensor], z_V: dict[str, tuple[torch.Tensor]]):
         return \
@@ -134,10 +134,24 @@ class GraMIModel(nn.Module):
         x, x_tile, n_A, n_V = self.encoder(graph)
         
         if self.is_variational:
-            z_A, z_V = self.reparameterize(n_A, n_V)
+            z_A_w_eps, z_V_w_eps = \
+                self.reparameterize(
+                    (
+                        n_A[0][:, self.encoder.attribute_encoder.h_psi:],
+                        n_A[1][:, self.encoder.attribute_encoder.h_psi:]
+                    ), 
+                    {k: (
+                            v[0][self.encoder.node_encoder.h_psi:], 
+                            v[1][self.encoder.node_encoder.h_psi:]
+                        ) for k, v in n_V.items()}
+                )
+            z_A, eps_A = z_A_w_eps
+            z_V = {k: v[0] for k, v in z_V_w_eps.items()}
+            eps_V = {k: v[1] for k, v in z_V_w_eps.items()}
         else:
             z_A, z_V = n_A, n_V
+            eps_A, eps_V = None, None
 
         graph_ptr = {node: graph[node].ptr for node in graph.x_dict.keys()}
         edge_logits, x_tile_rec, x_rec = self.decoder(z_A, z_V, graph.edge_index_dict, graph_ptr)
-        return x, x_tile, n_A, n_V, edge_logits, x_tile_rec, x_rec
+        return x, x_tile, n_A, n_V, z_A, z_V, eps_A, eps_V, edge_logits, x_tile_rec, x_rec

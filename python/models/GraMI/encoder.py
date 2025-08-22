@@ -1,3 +1,4 @@
+from typing import Union
 from torch import nn
 import torch
 from models.common import Transforms
@@ -14,6 +15,11 @@ class GraMIInit(nn.Module):
             for node_name, layer_config in config.items()
         })
 
+        for node_type in self.layer_dict:
+            for layer in self.layer_dict[node_type].seq: # pyright: ignore[reportGeneralTypeIssues]
+                if isinstance(layer, nn.Linear):
+                    nn.init.xavier_normal_(layer.weight, gain=1.414)
+
     def forward(self, x_dict, edge_index_dict):
         out_dict = {}
         for node_name, layer in self.layer_dict.items():
@@ -25,10 +31,10 @@ class GraMIInit(nn.Module):
                 for node_name, layer in self.layer_dict.items()}
 
 class GraMIAttributeEncoder(nn.Module):
-    def __init__(self, pool_dim, config, variational=[], stochastic=False):
+    def __init__(self, pool_dim, config, variational=[], stochastic: Union[bool, int] = False):
         super(GraMIAttributeEncoder, self).__init__()
         self.config = config
-        self.stochastic = stochastic
+        self.stochastic = not isinstance(stochastic, bool) or stochastic
         self.variational = bool(len(variational) > 0)
 
         self.pool_dim = pool_dim
@@ -37,14 +43,20 @@ class GraMIAttributeEncoder(nn.Module):
 
         self.mlp = MLP(self.config, self.pool_dim)
 
+
         if self.stochastic:
-            self.mlp_eps = MLP(self.config, self.pool_dim)
+            self.h_psi = 3
+            self.log_lkhood = 3
+            self.sto_input_dim = stochastic if not isinstance(stochastic, bool) else self.pool_dim
+            self.mlp_eps = MLP(self.config, self.sto_input_dim)
 
         ae_dim = self.mlp.get_output_dim()
 
         if self.variational:
             self.mlp_mean = MLP(variational, ae_dim)
             self.mlp_var  = MLP(variational, ae_dim)
+        
+        self.reweight = ((self.sto_input_dim + ae_dim) / (self.pool_dim + ae_dim)) ** (.5)
 
     def forward(self, X_T: list[torch.Tensor]):
         # TODO: Convert X_T from [(512, 661), (512, 2275), (512, 1086), (512, 1332)]
@@ -54,15 +66,20 @@ class GraMIAttributeEncoder(nn.Module):
 
         # Option 2: Adaptive Avg Pooling
         X_T_pooled = torch.stack([self.pool(x_T) for x_T in X_T], dim=0)
+        X_T_pooled = X_T_pooled.unsqueeze(dim=1)
 
         n_A = self.mlp(X_T_pooled)
 
         if self.stochastic:
-            eps = torch.randn_like(X_T_pooled)
-
+            eps = torch.randn((X_T_pooled.shape[0], (self.h_psi + self.log_lkhood)) \
+                              + X_T_pooled.shape[2:-1] + (self.sto_input_dim,), device=X_T_pooled.device)
+            eps = eps.squeeze(dim=-1)
+            eps = eps.mul(self.reweight)
             n_eps = self.mlp_eps(eps)
+        else:
+            n_eps = torch.zeros((n_A.shape[0], (self.h_psi + self.log_lkhood)) + n_A.shape[2:], device=X_T_pooled.device)
 
-            n_A = n_A + n_eps
+        n_A = n_A + n_eps
 
         if self.variational:
             n_A_mean = self.mlp_mean(n_A)
@@ -85,7 +102,7 @@ class GraMIAttributeEncoder(nn.Module):
     def get_output_shape(self, X_T_shape):
         batch_size = len(X_T_shape)
 
-        X_T_pooled_shape = torch.Size([batch_size, X_T_shape[0][0], self.pool_dim * batch_size])
+        X_T_pooled_shape = torch.Size([batch_size, self.h_psi + self.log_lkhood, X_T_shape[0][0], self.pool_dim * batch_size])
 
         if self.variational:
             return (self.mlp_mean.get_output_shape(X_T_pooled_shape), self.mlp_var.get_output_shape(X_T_pooled_shape))
@@ -93,13 +110,19 @@ class GraMIAttributeEncoder(nn.Module):
         return self.mlp.get_output_shape(X_T_pooled_shape)
 
 class GraMINodeEncoder(nn.Module):
-    def __init__(self, config, edge_index_dict_shape, variational=[], stochastic=False):
+    def __init__(self, config, edge_index_dict_shape, variational=[], stochastic: Union[bool, int] = False):
         super(GraMINodeEncoder, self).__init__()
         self.config = config
-        self.stochastic = stochastic
+        self.stochastic = isinstance(stochastic, int) or (isinstance(stochastic, bool) and stochastic)
         self.variational = (len(variational) > 0)
 
         self.hgnn = HGNN(config, edge_index_dict_shape)
+
+        if stochastic:
+            self.h_psi = 3
+            self.log_lkhood = 3
+            self.hgnn_eps = HGNN(config, edge_index_dict_shape)
+            self.sto_input_dim = stochastic if isinstance(stochastic, int) else self.hgnn.get_output_dim()
 
         if variational:
             # TODO: Variational MLPs are currently shared across all node types.
@@ -107,19 +130,17 @@ class GraMINodeEncoder(nn.Module):
             self.mlp_mean = MLP(variational, self.hgnn.get_output_dim())
             self.mlp_var  = MLP(variational, self.hgnn.get_output_dim())
 
-        if stochastic:
-            self.hgnn_eps = HGNN(config, edge_index_dict_shape)
-
     def forward(self, graph):
         n_V = self.hgnn(graph.x_dict, graph.edge_index_dict)
 
         if self.stochastic:
-            eps = {node_name: torch.randn_like(x) for node_name, x in graph.x_dict.items()}
+            eps = {node_name: torch.randn(((self.h_psi + self.log_lkhood), x.shape[0], self.sto_input_dim), device=x.device) for node_name, x in graph.x_dict.items()}
 
             hidden_eps = self.hgnn_eps(eps, graph.edge_index_dict)
+        else:
+            hidden_eps = {node_name: torch.zeros(((self.h_psi + self.log_lkhood),) + n.shape, device=n.device) for node_name, n in n_V.items()}
 
-            n_V = {node_name: (n_V[node_name] + hidden_eps[node_name]) for node_name in n_V}
-
+        n_V = {node_name: (n_V[node_name].unsqueeze(dim=0) + hidden_eps[node_name]) for node_name in n_V}
         if self.variational:
             n_V = {node_name: (self.mlp_mean(z), self.mlp_var(z)) for node_name, z in n_V.items()}
 
@@ -135,6 +156,7 @@ class GraMINodeEncoder(nn.Module):
         return self.hgnn.get_output_dim()
 
     def get_output_shape(self, x_dict_shape):
+        x_dict_shape = {node: ((self.h_psi + self.log_lkhood),) + x_shape for node, x_shape in x_dict_shape.items()}
         if self.variational:
             return {node: (self.mlp_mean.get_output_shape(x), self.mlp_var.get_output_shape(x)) for node, x in x_dict_shape.items()}
 

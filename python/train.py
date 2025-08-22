@@ -15,7 +15,7 @@ import pandas as pd
 from sklearn.model_selection import train_test_split
 from torch_geometric.loader import DataLoader
 
-from models.GraMI import GraMIModel, GraMI_loss, edge_and_r2_acc
+from models.GraMI import GraMIModel, GraMI_loss, edge_and_r2_acc, SeeR_GraMI_loss
 
 from utils.common import get_adj_mat_from_edge_index
 
@@ -29,9 +29,9 @@ def load_graph_data(dataset, device, batch_size, cfg):
     df["file_path"] = df["pt_file"].apply(lambda x: str(data_path / x))
     file_list = df["file_path"].tolist()
 
-    train_files, temp_files = train_test_split(file_list,  test_size=0.4, random_state=cfg.seed)
-    val_files,   test_files = train_test_split(temp_files, test_size=0.5, random_state=cfg.seed)
-    # train_files, val_files, test_files = file_list[0:2], file_list[2:3], file_list[3:4]
+    # train_files, temp_files = train_test_split(file_list,  test_size=0.4, random_state=cfg.seed)
+    # val_files,   test_files = train_test_split(temp_files, test_size=0.5, random_state=cfg.seed)
+    train_files, val_files, test_files = file_list[0:2], file_list[2:3], file_list[3:4]
 
     cfg["train_dataset_size"] = len(train_files)
     cfg["val_dataset_size"] = len(val_files)
@@ -55,12 +55,17 @@ def main(cfg, debug):
         )
 
     # Loss + acc
-    loss_fn = lambda X, X_hat, adj_mat, V, A, edge_logits, X_hat_prime, X_prime: \
-        GraMI_loss(X, X_hat, adj_mat, V, A, edge_logits,
-                   X_hat_prime, X_prime,
-                   variational=model.is_variational,
-                   lambdas=cfg.loss_config["lambdas"],
-                   betas=cfg.loss_config["betas"])
+    if not model.is_variational:
+        loss_fn = lambda x, x_tile, adj_mat, n_V, n_A, z_A, z_V, eps_A, eps_V, edge_logits, x_tile_rec, x_rec, epoch: \
+            GraMI_loss(x, x_tile, adj_mat, n_V, n_A, edge_logits,
+                    x_tile_rec, x_rec,
+                    variational=model.is_variational,
+                    lambdas=cfg.loss_config["lambdas"],
+                    betas=cfg.loss_config["betas"])
+    else:
+        loss_fn = lambda x, x_tile, adj_mat, n_V, n_A, z_A, z_V, eps_A, eps_V, edge_logits, x_tile_rec, x_rec, epoch: \
+            SeeR_GraMI_loss(x, x_tile, adj_mat, n_V, n_A, z_A, z_V, eps_A, eps_V, edge_logits, x_tile_rec, x_rec, epoch, lambdas=cfg.loss_config["lambdas"])
+
     acc_fn = edge_and_r2_acc
 
     # Single step
@@ -73,29 +78,29 @@ def main(cfg, debug):
                   start_epoch, best_acc, run_dir, writer, 
                   loss_fn, acc_fn, single_step_fn, log_training_metrics)
 
-def single_step(model, data, loss_fn, acc_fn, writer, epoch, data_index, debug) -> tuple[torch.Tensor, float]:
+def single_step(model: GraMIModel, data, loss_fn, acc_fn, writer, epoch, data_index, debug) -> tuple[torch.Tensor, float]:
     adj_mat = get_adj_mat_from_edge_index(data.x_dict, data.edge_index_dict)
 
-    X, X_hat, A, V, edge_logits, X_hat_prime, X_prime = model(data)
+    x, x_tile, n_A, n_V, z_A, z_V, eps_A, eps_V, edge_logits, x_tile_rec, x_rec = model(data)
 
     if model.training and debug:
-        for k, v in V.items():
+        for k, v in n_V.items():
             writer.add_histogram(f"latent/z_V_{k}_d{data_index}", v, epoch)
-        writer.add_histogram(f"latent/z_A_d{data_index}", A, epoch)
+        writer.add_histogram(f"latent/z_A_d{data_index}", n_A, epoch)
         for k, v in edge_logits.items():
             writer.add_histogram(f"latent/edges_{k}_d{data_index}", v, epoch)
 
-    assert all([X_hat[k].shape == X_hat_prime[k].shape for k in X_hat_prime.keys()]), \
-        f"{[(k, X_hat[k].shape, X_hat_prime[k].shape) for k in X_hat_prime.keys() if X_hat[k].shape != X_hat_prime[k].shape]}"
-    assert all([X[k].shape == X_prime[k].shape for k in X_prime.keys()]), \
-        f"{[(k, X[k].shape, X_prime[k].shape) for k in X_prime.keys() if X[k].shape != X_prime[k].shape]}"
-    assert all([adj_mat[k].shape == edge_logits[k].shape for k in data.edge_index_dict.keys()]), \
+    assert all([x_tile[k].shape == x_tile_rec[k].shape[1:] for k in x_tile_rec.keys()]), \
+        f"{[(k, x_tile[k].shape, x_tile_rec[k].shape) for k in x_tile_rec.keys() if x_tile[k].shape != x_tile_rec[k].shape]}"
+    assert all([x[k].shape == x_rec[k].shape[1:] for k in x_rec.keys()]), \
+        f"{[(k, x[k].shape, x_rec[k].shape) for k in x_rec.keys() if x[k].shape != x_rec[k].shape]}"
+    assert all([adj_mat[k].shape == edge_logits[k].shape[1:] for k in data.edge_index_dict.keys()]), \
         f"{[(k, adj_mat[k].shape, edge_logits[k].shape) for k in data.edge_index_dict.keys() if adj_mat[k].shape != edge_logits[k].shape]}"
 
     # print(edge_logits)
-    loss = loss_fn(X, X_hat, adj_mat, V, A, edge_logits, X_hat_prime, X_prime)
+    loss = loss_fn(x, x_tile, adj_mat, n_V, n_A, z_A, z_V, eps_A, eps_V, edge_logits, x_tile_rec, x_rec, epoch)
     with torch.no_grad():
-        acc = acc_fn(X, adj_mat, edge_logits, X_prime)
+        acc = acc_fn(x, adj_mat, edge_logits, x_rec)
     return loss, acc
 
 def log_training_metrics(writer, i, mean_train_loss, mean_train_acc, mean_val_loss, mean_val_acc, lr):

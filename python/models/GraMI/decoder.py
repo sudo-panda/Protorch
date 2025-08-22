@@ -13,7 +13,7 @@ class GraMINodeDecoder(nn.Module):
     def forward(self, z_V: dict[str, torch.Tensor], edge_index_dict: dict[tuple, torch.Tensor]):
         edge_logits = {}
         for edge_type in edge_index_dict:
-            edge_logits[edge_type] = torch.sigmoid(torch.matmul(z_V[edge_type[2]], z_V[edge_type[0]].T))
+            edge_logits[edge_type] = torch.sigmoid(torch.bmm(z_V[edge_type[2]], torch.transpose(z_V[edge_type[0]], 1, 2)))
         return edge_logits
 
 class GraMIAttributeDecoder(nn.Module):
@@ -30,11 +30,11 @@ class GraMIAttributeDecoder(nn.Module):
     def unbatch_graphs(batched, ptrs):
         batch_size = len(list(ptrs.values())[0]) - 1
         unbatched = [{} for _ in range(batch_size)]
-        for node_type, graph in batched.items():
+        for node_type, attr in batched.items():
             for i in range(batch_size):
                 start = ptrs[node_type][i]
                 end = ptrs[node_type][i + 1]
-                unbatched[i][node_type] = graph[start:end]
+                unbatched[i][node_type] = attr[:, start:end]
 
         return unbatched
     
@@ -43,13 +43,13 @@ class GraMIAttributeDecoder(nn.Module):
     def rebatch_graphs(unbatched):
         rebatch = {}
         for i in range(len(unbatched)):
-            for node_type, tensor in unbatched[i].items():
+            for node_type, attr in unbatched[i].items():
                 if node_type not in rebatch:
                     rebatch[node_type] = []
-                rebatch[node_type].append(tensor)
+                rebatch[node_type].append(attr)
 
         for node_type, tensors in rebatch.items():
-            rebatch[node_type] = torch.cat(tensors, dim=0)
+            rebatch[node_type] = torch.cat(tensors, dim=1)
         
         return rebatch
 
@@ -59,7 +59,7 @@ class GraMIAttributeDecoder(nn.Module):
         z_rec = [{} for _ in range(len(z_V_unbatched))]
         for i in range(len(z_V_unbatched)):
             for node_type, z_Vi in z_V_unbatched[i].items():
-                z_rec[i][node_type] = torch.tanh(torch.matmul(z_Vi, z_A[i].T))
+                z_rec[i][node_type] = torch.tanh(torch.bmm(z_Vi, torch.transpose(z_A[i], 1, 2)))
 
         z_rec = GraMIAttributeDecoder.rebatch_graphs(z_rec)
 

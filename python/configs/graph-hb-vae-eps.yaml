@@ -2,9 +2,9 @@ device: cuda
 model_name: graph-512-8-GAT-VAE-eps
 seed: 42
 train:
-  dataset: devmap
+  dataset: hecbench
   epochs: 1000
-  batch_size: 16
+  batch_size: 4
   world_size: 2
   learning_rate: 0.001
   weight_decay: 0.0001
@@ -18,7 +18,7 @@ train:
   extra_config:
     ratio: 1.0
 test:
-  dataset: devmap
+  dataset: hecbench
   batch_size: 16
   checkpoint:
     dir: /tmp/checkpoints
