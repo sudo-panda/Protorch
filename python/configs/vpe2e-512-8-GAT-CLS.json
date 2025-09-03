@@ -1,0 +1,117 @@
+{
+    "transforms": {
+        "instruction": "None",
+        "value": "None",
+        "number": "DigitEmbed",
+        "typ": "None",
+        "attribute": "None",
+        "size": "DigitEmbed"
+    },
+    "init": {
+        "instruction": [
+            { "Linear":     [128] },
+            { "ReLU":       []    },
+            { "LayerNorm":  [128] },
+            { "Dropout":    [0.1] },
+            { "Linear":     [512] },
+            { "ReLU":       []    },
+            { "LayerNorm":  [512] }
+        ],
+        "value": [
+            { "Linear":     [128] },
+            { "ReLU":       []    },
+            { "LayerNorm":  [128] },
+            { "Dropout":    [0.1] },
+            { "Linear":     [512] },
+            { "ReLU":       []    },
+            { "LayerNorm":  [512] }
+        ],
+        "number": [
+            { "Linear":     [128] },
+            { "ReLU":       []    },
+            { "LayerNorm":  [128] },
+            { "Dropout":    [0.1] },
+            { "Linear":     [512] },
+            { "ReLU":       []    },
+            { "LayerNorm":  [512] }
+        ],
+        "typ": [
+            { "Linear":     [128] },
+            { "ReLU":       []    },
+            { "LayerNorm":  [128] },
+            { "Dropout":    [0.1] },
+            { "Linear":     [512] },
+            { "ReLU":       []    },
+            { "LayerNorm":  [512] }
+        ],
+        "attribute": [
+            { "Linear":     [128] },
+            { "ReLU":       []    },
+            { "LayerNorm":  [128] },
+            { "Dropout":    [0.1] },
+            { "Linear":     [512] },
+            { "ReLU":       []    },
+            { "LayerNorm":  [512] }
+        ],
+        "size": [
+            { "Linear":     [128] },
+            { "ReLU":       []    },
+            { "LayerNorm":  [128] },
+            { "Dropout":    [0.1] },
+            { "Linear":     [512] },
+            { "ReLU":       []    },
+            { "LayerNorm":  [512] }
+        ]
+    },
+    "attribute_encoder": {
+        "dim": 4096,
+        "layers": [
+            { "Linear":     [512]  },
+            { "ReLU":       []     },
+            { "LayerNorm":  [512]  },
+            { "Linear":     [64]   },
+            { "ReLU":       []     },
+            { "LayerNorm":  [64]   },
+            { "Dropout":    [0.1]  },
+            { "Linear":     [16]   },
+            { "ReLU":       []     },
+            { "LayerNorm":  [16]   }
+        ],
+        "variational": [],
+        "stochastic": false
+    },
+    "node_encoder": {
+        "layers": [
+            { "name": "SAGEConv", "out_channels": 512,  "activation": "relu" },
+            { "name": "SAGEConv", "out_channels": 64,   "activation": "relu" },
+            { "name": "SAGEConv", "out_channels": 16,   "activation": "relu" }
+        ],
+        "variational": [],
+        "stochastic": false
+    },  
+    "classifier": {
+        "common": [
+            { "Linear":     [64]   },
+            { "ReLU":       []     },
+            { "LayerNorm":  [64]   },
+            { "Dropout":    [0.1]  },
+            { "Linear":     [16]   },
+            { "ReLU":       []     },
+            { "LayerNorm":  [16]   }
+        ],
+        "if_cls": [
+            { "Linear":     [8]    },
+            { "ReLU":       []     },
+            { "LayerNorm":  [8]    },
+            { "Dropout":    [0.1]  },
+            { "Linear":     [5]    }
+        ],
+        "vf_cls": [
+            { "Linear":     [8]    },
+            { "ReLU":       []     },
+            { "LayerNorm":  [8]    },
+            { "Dropout":    [0.1]  },
+            { "Linear":     [7]    }
+        ]
+    }
+}
