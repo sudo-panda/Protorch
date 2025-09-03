@@ -1,0 +1,20 @@
+device: cuda
+model_name: vpcls-graphhb-512-8
+seed: 42
+train:
+  dataset: vecparams-x86_64
+  epochs: 1000
+  batch_size: 16
+  world_size: 2
+  learning_rate: 0.001
+  weight_decay: 0.0001
+  train_from_checkpoint: false
+  optimizer: AdamW
+  scheduler:
+    name: linear
+test:
+  dataset: vecparams-x86_64
+  batch_size: 16
+  checkpoint:
+    dir: /tmp/checkpoints
+    file_name: vecparams-x86_64_test_checkpoint.pth
