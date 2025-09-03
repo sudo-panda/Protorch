@@ -1,9 +1,8 @@
 from typing import Any
 from torch import nn
 import torch
-from models.common import MLP
+from models.common import MLP, pool_enc_outs
 from models.GraMI.encoder import GraMIEncoder
-from torch_geometric.nn import global_add_pool
 from torch_geometric.data import HeteroData
 
 class DevmapClassifier(nn.Module):
@@ -19,19 +18,17 @@ class DevmapClassifier(nn.Module):
     def forward(self, z_A, z_V,
                 comp, mem, localmem, 
                 coalesced, transfer, wgsize,  
-                batch):
-        mlp_inp = [ z_A.sum(dim=1) ]
-        for node_type in self.node_order:
-            mlp_inp.append(global_add_pool(z_V[node_type], batch[node_type]))
+                batch, batch_size):
+        outs = pool_enc_outs(z_A, z_V, batch, batch_size, self.node_order)
 
-        mlp_inp.append(comp.unsqueeze(-1))
-        mlp_inp.append(mem.unsqueeze(-1))
-        mlp_inp.append(localmem.unsqueeze(-1))
-        mlp_inp.append(coalesced.unsqueeze(-1))
-        mlp_inp.append(transfer.unsqueeze(-1))
-        mlp_inp.append(wgsize.unsqueeze(-1))
+        outs.append(comp.unsqueeze(-1))
+        outs.append(mem.unsqueeze(-1))
+        outs.append(localmem.unsqueeze(-1))
+        outs.append(coalesced.unsqueeze(-1))
+        outs.append(transfer.unsqueeze(-1))
+        outs.append(wgsize.unsqueeze(-1))
 
-        mlp_inp = torch.cat(mlp_inp, dim=1)
+        mlp_inp = torch.cat(outs, dim=1)
         return self.mlp(mlp_inp)
 
 class DevmapE2EModel(nn.Module):
@@ -58,10 +55,11 @@ class DevmapE2EModel(nn.Module):
         _, _, z_A, z_V = self.encoder(graph)
 
         batch = {k: graph[k].batch for k in self.node_order}
+        batch_size = len(batch[list(graph.x_dict.keys())[0]].ptr) - 1
         
         logits = self.classifier(
             z_A, z_V, 
             graph.comp, graph.mem, graph.localmem, 
             graph.coalesced, graph.transfer, graph.wgsize, 
-            batch)
+            batch, batch_size)
         return logits

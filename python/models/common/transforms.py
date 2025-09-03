@@ -55,9 +55,10 @@ class DigitEmbedTransform(nn.Module):
         emb_list = []
         for token_ids_tensor in token_ids:
             # token_ids_tensor is a set with a single tensor
-            lookup_output = token_ids_tensor.pop().to(self.digit_embedding.weight.device)
+            assert isinstance(token_ids_tensor, set) and len(token_ids_tensor) == 1
+            lookup_output = list(token_ids_tensor)[0].to(self.digit_embedding.weight.device)
             emb = get_embedding_from_lookup_output(lookup_output, self.digit_embedding)
-            emb = emb.view(*emb.shape[:-2], -1)
+            emb = emb.view(*emb.shape[:-2], emb.shape[-1] * emb.shape[-2]) # (batch, feat * digit_embed_size)
             emb_list.append(emb)
         
         return torch.cat(emb_list, dim=0).to(device=node.device)
