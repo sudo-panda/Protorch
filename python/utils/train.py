@@ -469,7 +469,10 @@ def train_one_epoch(single_step_fn, train_dataloader, model, optimizer, loss_fn,
                 print(f"{file}, {sizeof_fmt(size)}", flush=True)
             print(f"Total batch size: {sizeof_fmt(total)}", flush=True)
             raise e
-        
+        except Exception as e:
+            print(f"Files: {chr(10).join(batch.file_path)}")
+            raise e
+
         loss.backward(retain_graph=False)
         optimizer.step()
         if scheduler_step_type == "batch":

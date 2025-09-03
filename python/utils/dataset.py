@@ -1,4 +1,6 @@
+import ast
 import torch
+import torch.nn.functional as F
 from torch_geometric.data import HeteroData, Dataset
 
 class GraphDataset(Dataset):
@@ -79,3 +81,29 @@ class DevmapDataset(Dataset):
             data.__setattr__(k, v)
 
         return data, label
+
+
+class VecParamsDataset(Dataset):
+    def __init__(self, input_list, device="cpu"):
+        super(VecParamsDataset, self).__init__()
+        self.device = device
+
+        self.input_list = input_list
+
+    def __len__(self):
+        return len(self.input_list)
+
+    def __getitem__(self, idx):  # type: ignore
+        with open(self.input_list[idx]["file_path"], "rb") as f:
+            data: HeteroData = torch.load(f, weights_only=False)
+            data.to(device=self.device)
+
+        del data['module', 'symbol', 'value']
+        del data['module']
+        del data['value', 'contains', 'value'] # FIXME: REMOVE
+
+        data.file_path = self.input_list[idx]["file_path"]
+        runtimes = torch.Tensor(list(ast.literal_eval(self.input_list[idx]["runtimes"]).values())).to(device=self.device, dtype=torch.float)
+        log_labels = F.log_softmax(-5 * runtimes, dim=0)  # max(logits) = 0 internally
+        labels = log_labels.exp()
+        return data, labels
