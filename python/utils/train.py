@@ -1,9 +1,11 @@
 import argparse
 import gc
 import json
-from typing import Callable, Optional
+from typing import Callable, Optional, Union
 import numpy as np
 import torch
+import torch.nn as nn
+from torch.utils.data import DataLoader
 import pickle
 import random
 from pathlib import Path
@@ -31,7 +33,7 @@ from utils.common import (
     print_gpu_mem,
     sizeof_fmt,
 )
-from utils.config import TrainConfig, load_config
+from utils.config import TestConfig, TrainConfig, load_config
 from utils.paths import configs_dir, runs_dir
 
 def get_scheduler_fn(
@@ -205,13 +207,15 @@ def floats_to_filename(data, max_items=5):
     
     return filename
 
-def log_config(writer: SummaryWriter, cfg, tag: str = "config"):
+def log_config(writer: Union[SummaryWriter, None], cfg, tag: str = "config"):
     cfg_json = cfg.dumps(sort_keys=False, default_flow_style=False)
-    writer.add_text(tag, f"```yaml\n{cfg_json}\n```")
+    if writer is not None:
+        writer.add_text(tag, f"```yaml\n{cfg_json}\n```")
 
-def log_model_arch(writer: SummaryWriter, model_arch, tag: str = "arch"):
+def log_model_arch(writer: Union[SummaryWriter, None], model_arch, tag: str = "arch"):
     cfg_json = json.dumps(model_arch, indent=2)
-    writer.add_text(tag, f"```json\n{cfg_json}\n```")
+    if writer is not None:
+        writer.add_text(tag, f"```json\n{cfg_json}\n```")
 
 def get_current_lr(optimizer, scheduler):
     """Get the current learning rate from optimizer/scheduler."""
@@ -364,7 +368,7 @@ def load_training_modules(
         create_model_fn, 
         model_name: str, 
         data_shapes: dict, 
-        cfg, 
+        cfg: TrainConfig, 
         load_preprocessor: Optional[Callable[[dict, dict, Path, str, SummaryWriter], tuple]] = None):
     train_from_checkpoint = cfg.train_from_checkpoint
     run_dir = runs_dir / get_log_dir_name(model_name)
@@ -533,6 +537,7 @@ def _default_arg_defs():
         "--train_from_checkpoint": dict(type=str, default=None),
         "--optimizer": dict(type=str, default=None),
         "--scheduler": dict(type=str, default=None),
+        "--test": dict(action="store_true"),
     }
 
 def _default_handlers():
@@ -557,8 +562,7 @@ def _default_handlers():
     }
 
 def parse_and_run(
-    config_class,
-    main_fn,
+    main_fn: Callable[[Union[TrainConfig, TestConfig], bool, bool], None],
     arg_definitions={},
     special_handlers={},
 ):
@@ -587,7 +591,9 @@ def parse_and_run(
     print(f"Loading config from {config_path}")
     assert config_path.exists(), f"Config file {config_path} does not exist."
 
-    cfg = load_config(config_path, train=True)
+    train = not args.test
+    
+    cfg = load_config(config_path, train=train)
 
     # merge handlers (default + custom)
     merged_handlers = _default_handlers()
@@ -595,7 +601,7 @@ def parse_and_run(
 
     # apply overrides
     for arg_k, arg_v in vars(args).items():
-        if arg_k not in ["config", "debug"] and arg_v is not None:
+        if arg_k not in ["config", "debug", "test"] and arg_v is not None:
             if arg_k in merged_handlers:
                 merged_handlers[arg_k](arg_v, args, cfg)
             else:
@@ -604,15 +610,16 @@ def parse_and_run(
 
     debug = args.debug
 
-    assert isinstance(cfg, config_class), f"Config loaded is not {config_class}, got {type(cfg)}"
+    assert not train or isinstance(cfg, TrainConfig), f"Config loaded is not {TrainConfig}, got {type(cfg)}"
+    assert train     or isinstance(cfg,  TestConfig), f"Config loaded is not { TestConfig}, got {type(cfg)}"
 
     make_deterministic(cfg.seed)
-    main_fn(cfg, debug)
-    print("Training Done!")
+    main_fn(cfg, debug, train)
+    print(f"{'Training' if train else 'Testing'} Done!")
 
 
 def setup_training(
-    cfg,
+    cfg: TrainConfig,
     create_model_fn,
     data_loader_fn,
     load_preprocessor_fn=None

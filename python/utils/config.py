@@ -75,8 +75,7 @@ class TestConfig:
     model_name: str
     device: str = "cuda"
     batch_size: int = 16
-    checkpoint_dir: Optional[str] = None
-    checkpoint_file_name: Optional[str] = None
+    checkpoint: Optional[str] = None
     seed: int = 42
 
     @classmethod
@@ -87,12 +86,6 @@ class TestConfig:
         if 'train' in config_dict:
             del config_dict['train']
 
-        if 'checkpoint' in config_dict:
-            checkpoint = config_dict['checkpoint']
-            config_dict['checkpoint_dir'] = checkpoint.get('dir', None)
-            config_dict['checkpoint_file_name'] = checkpoint.get('file_name', None)
-            del config_dict['checkpoint']
-
         return cls(**config_dict)
 
     def save(self, path: Union[Path, str]):
@@ -101,6 +94,9 @@ class TestConfig:
 
     def dumps(self) -> str:
         return yaml.dump(self.__dict__)
+    
+    def __setitem__(self, name: str, value: Any) -> None:
+        self.__dict__[name] = value
 
 def load_config(yaml_path: Path, train: bool = True) -> Union[TrainConfig, TestConfig]:
     with open(yaml_path, 'r') as f:

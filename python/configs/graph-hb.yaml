@@ -8,7 +8,7 @@ train:
   world_size: 2
   learning_rate: 0.01
   weight_decay: 0.001
-  train_from_checkpoint: true
+  train_from_checkpoint: false
   optimizer: AdamW
   scheduler:
     name: linear

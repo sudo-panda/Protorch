@@ -7,6 +7,7 @@ from pathlib import Path
 from utils.config import TrainConfig
 
 from utils.dataset import VecParamsDataset
+from utils.infer import setup_testing
 from utils.paths import get_data_paths
 from utils.train import (
     parse_and_run,
@@ -75,33 +76,85 @@ def load_vecparam_data(dataset, device, batch_size, cfg):
 
     return train_dataloader, val_dataloader, test_dataloader
 
-def main(cfg, debug):
-    # Setup
-    train_dl, val_dl, model, optimizer, scheduler, scaler, start_epoch, \
-        best_acc, run_dir, writer, _ = \
-        setup_training(
-            cfg,
-            create_model_fn=VecParamsE2EModel,
-            data_loader_fn=load_vecparam_data,
-        )
-
+def main(cfg, debug, train):
     # Loss + acc
     loss_fn = nn.BCELoss()
-    acc_fn = lambda outputs, one_hot: (outputs.argmax(1) == one_hot.argmax(1)).float()
+    acc_fn = lambda outputs, one_hot: (outputs.argmax(-1) == one_hot.argmax(-1)).float()
 
     classes = {
         "vf_classes": torch.tensor([1, 2, 4, 8, 16, 32, 64], device=cfg.device, dtype=torch.long),
         "if_classes": torch.tensor([1, 2, 4, 8, 16], device=cfg.device, dtype=torch.long),
     }
 
-    # Single step
-    single_step_fn = lambda model, data, loss_fn, acc_fn, epoch, data_index: \
-        single_step(model, data[0], data[1], loss_fn, acc_fn, classes)
+    if train:
+        # Setup
+        train_dl, val_dl, model, optimizer, scheduler, scaler, start_epoch, \
+            best_acc, run_dir, writer, _ = \
+            setup_training(
+                cfg,
+                create_model_fn=VecParamsE2EModel,
+                data_loader_fn=load_vecparam_data,
+            )
 
-    # Loop
-    training_loop(cfg, debug, train_dl, val_dl, model, optimizer, 
-                  scheduler, scaler, start_epoch, best_acc, run_dir, 
-                  writer, loss_fn, acc_fn, single_step_fn, log_training_metrics)
+
+        # Single step
+        single_step_fn = lambda model, data, loss_fn, acc_fn, epoch, data_index: \
+            single_step(model, data[0], data[1], loss_fn, acc_fn, classes)
+
+        # Loop
+        training_loop(cfg, debug, train_dl, val_dl, model, optimizer, 
+                    scheduler, scaler, start_epoch, best_acc, run_dir, 
+                    writer, loss_fn, acc_fn, single_step_fn, log_training_metrics)
+    else:
+        tot_val_acc, tot_val_loss, index_val = 0, 0, 0
+
+        test_dataloader, model, run_dir, csv_file, _ = \
+            setup_testing(cfg, VecParamsE2EModel, load_vecparam_data)
+        
+        df = pd.DataFrame(columns=["file_name", "loss", "acc", "pred", "target"])
+        
+        model.eval()
+        with torch.no_grad():
+            for data in test_dataloader:
+                batch, labels = data
+
+                assert isinstance(model, VecParamsE2EModel)
+                vf_logits, if_logits = model.forward(batch)
+
+                
+                labels_to_onehot_vf = (labels[:, 0].unsqueeze(1) == classes["vf_classes"]).float()
+                labels_to_onehot_if = (labels[:, 1].unsqueeze(1) == classes["if_classes"]).float()
+
+                for file_name, vf_prob, if_prob, vf_labels, if_labels in zip(batch.file_path, vf_logits, if_logits, labels_to_onehot_vf, labels_to_onehot_if):
+                    vf_loss = loss_fn(vf_prob, vf_labels.to(torch.float32)).item()
+                    if_loss = loss_fn(if_prob, if_labels.to(torch.float32)).item()
+                    loss = vf_loss + if_loss
+
+                    vf_acc = acc_fn(vf_prob, vf_labels).item()
+                    if_acc = acc_fn(if_prob, if_labels).item()
+                    acc = (vf_acc + if_acc) / 2
+
+                    new_row = pd.Series({
+                        "file_name": Path(file_name).name, 
+                        "loss": loss, 
+                        "acc": acc,
+                        "pred": (classes['vf_classes'][vf_prob.argmax().item()].item(), classes['if_classes'][if_prob.argmax().item()].item()),
+                        "target": (classes['vf_classes'][vf_labels.argmax().item()].item(), classes['if_classes'][if_labels.argmax().item()].item())
+                    })
+                    df = pd.concat([df, new_row.to_frame().T], ignore_index=True)
+
+                    tot_val_loss += loss
+                    tot_val_acc  += acc
+                    index_val    += 1
+
+                df.to_csv(csv_file, index=False)
+
+            test_loss = tot_val_loss / index_val if index_val > 0 else 0
+            test_acc = tot_val_acc / index_val if index_val > 0 else 0  
+
+            print(f"\n\tTest | Loss: {test_loss:.4f} | Acc: {test_acc:.4f}\n")
+            with open(csv_file.with_suffix(".txt"), "w") as f:
+                f.write(f"Test | Loss: {test_loss:.4f} | Acc: {test_acc:.4f}\n")
 
 def single_step(model, batch, labels, loss_fn, acc_fn, classes):
     assert isinstance(model, VecParamsE2EModel)
@@ -149,6 +202,5 @@ def log_training_metrics(writer, i, mean_train_loss, mean_train_acc, mean_val_lo
 
 if __name__ == "__main__":
     parse_and_run(
-        config_class=TrainConfig,
         main_fn=main,
     )

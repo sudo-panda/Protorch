@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Union
 
 file_path = Path(__file__).resolve()
 utils_path = file_path.parent
@@ -11,7 +12,7 @@ runs_dir = Path("/p/vast1/kundu1/protorch") / "runs"
 GraMI_path = models_path / "GraMI"
 Devmap_path = models_path / "Devmap"
 
-def get_data_paths(dataset):
+def get_data_paths(dataset: str) -> tuple[Path, Union[Path, dict[str, Path]], Union[Path, dict[str, Path]]]:
     path_map = {
         "devmap": {
             "dataset": "/p/vast1/kundu1/protorch/devmap", 

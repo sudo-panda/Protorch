@@ -69,6 +69,7 @@ class DevmapDataset(Dataset):
 
         del data['module', 'symbol', 'value']
         del data['module']
+        del data['value', 'contains', 'value']
 
         label = torch.Tensor([self.devmap_list[idx] == "GPU"]).to(device=self.device)
 
@@ -103,7 +104,7 @@ class VecParamsDataset(Dataset):
         del data['value', 'contains', 'value'] # FIXME: REMOVE
 
         data.file_path = self.input_list[idx]["file_path"]
-        runtimes = torch.Tensor(list(ast.literal_eval(self.input_list[idx]["runtimes"]).values())).to(device=self.device, dtype=torch.float)
-        log_labels = F.log_softmax(-5 * runtimes, dim=0)  # max(logits) = 0 internally
-        labels = log_labels.exp()
-        return data, labels
+
+        label = torch.Tensor([self.input_list[idx]["best_VF"], self.input_list[idx]["best_IF"]]).to(device=self.device, dtype=torch.long)
+
+        return data, label

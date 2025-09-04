@@ -1,8 +1,11 @@
+from pathlib import Path
+from typing import Union
 import torch
 import torch.nn as nn
 
+from utils.infer import setup_testing
 from utils.paths import get_data_paths
-from utils.config import TrainConfig
+from utils.config import TestConfig, TrainConfig
 from utils.train import (
     parse_and_run,
     setup_training,
@@ -18,10 +21,11 @@ from torch_geometric.loader import DataLoader
 from models.Devmap import DevmapE2EModel
 
 
-def load_devmap_data(dataset, device, batch_size, cfg):
+def load_devmap_data(dataset: str, device: str, batch_size: int, cfg: Union[TestConfig, TrainConfig]):
     ################ Load data ################
     _, data_path, csv_file = get_data_paths(dataset)
 
+    assert isinstance(csv_file, Path), f"Not Implemented support for {type(csv_file)} as CSV file var"
     with open(csv_file) as f:
         df = pd.read_csv(f)
 
@@ -49,26 +53,71 @@ def load_devmap_data(dataset, device, batch_size, cfg):
     return train_dataloader, val_dataloader, test_dataloader
 
 
-def main(cfg, debug):
-    # Setup
-    train_dl, val_dl, model, optimizer, scheduler, scaler, \
-        start_epoch, best_acc, run_dir, writer, _ = \
-        setup_training(
-            cfg,
-            create_model_fn=DevmapE2EModel,
-            data_loader_fn=load_devmap_data,
-        )
-    
+def main(cfg, debug, train=True):
+
     loss_fn = nn.BCELoss()
     acc_fn = lambda preds, labels: ((preds >= 0.5).to(torch.int32) == labels).type(torch.float32)
 
-    single_step_fn = lambda model, data, loss_fn, acc_fn, epoch, data_index: \
-        single_step(model, data[0], data[1], loss_fn, acc_fn)
+    if train:
+        # Setup
+        train_dl, val_dl, model, optimizer, scheduler, scaler, \
+            start_epoch, best_acc, run_dir, writer, _ = \
+            setup_training(
+                cfg,
+                create_model_fn=DevmapE2EModel,
+                data_loader_fn=load_devmap_data,
+            )
+        
 
-    training_loop(cfg, debug, train_dl, val_dl, model, 
-                  optimizer, scheduler, scaler,
-                  start_epoch, best_acc, run_dir, writer, 
-                  loss_fn, acc_fn, single_step_fn, log_training_metrics)
+        single_step_fn = lambda model, data, loss_fn, acc_fn, epoch, data_index: \
+            single_step(model, data[0], data[1], loss_fn, acc_fn)
+
+        training_loop(cfg, debug, train_dl, val_dl, model, 
+                    optimizer, scheduler, scaler,
+                    start_epoch, best_acc, run_dir, writer, 
+                    loss_fn, acc_fn, single_step_fn, log_training_metrics)
+    else:
+        tot_val_acc, tot_val_loss, index_val = 0, 0, 0
+
+        test_dataloader, model, run_dir, csv_file, _ = \
+            setup_testing(cfg, DevmapE2EModel, load_devmap_data)
+        
+        df = pd.DataFrame(columns=["file_name", "loss", "acc", "pred", "target"])
+        
+        model.eval()
+        with torch.no_grad():
+            for data in test_dataloader:
+                batch, labels = data
+
+                assert isinstance(model, DevmapE2EModel)
+                logits = model.forward(batch)
+
+                probs = torch.sigmoid(logits)
+
+                for file_name, prob, label in zip(batch.file_path, probs, labels):
+                    loss = loss_fn(prob, label.to(torch.float32)).item()
+                    acc = acc_fn(prob, label).item()
+                    new_row = pd.Series({
+                        "file_name": Path(file_name).name, 
+                        "loss": loss, 
+                        "acc": acc,
+                        "pred": "GPU" if (prob > 0.5) else "CPU",
+                        "target": "GPU" if (label == 1) else "CPU"
+                    })
+                    df = pd.concat([df, new_row.to_frame().T], ignore_index=True)
+
+                    tot_val_loss += loss
+                    tot_val_acc  += acc
+                    index_val    += 1
+
+                df.to_csv(csv_file, index=False)
+
+            test_loss = tot_val_loss / index_val if index_val > 0 else 0
+            test_acc = tot_val_acc / index_val if index_val > 0 else 0  
+
+            print(f"\n\tTest | Loss: {test_loss:.4f} | Acc: {test_acc:.4f}\n")
+            with open(csv_file.with_suffix(".txt"), "w") as f:
+                f.write(f"Test | Loss: {test_loss:.4f} | Acc: {test_acc:.4f}\n")
 
 
 def single_step(model, batch, labels, loss_fn, acc_fn):
@@ -94,6 +143,5 @@ def log_training_metrics(writer, i, mean_train_loss, mean_train_acc, mean_val_lo
 
 if __name__ == "__main__":
     parse_and_run(
-        config_class=TrainConfig,
         main_fn=main,
     )
