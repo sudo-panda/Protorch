@@ -39,5 +39,10 @@
 # flux batch -n 1 -c32 --job-name=VSE2E_O0 train_vecparams_e2e.sh vpe2e-O0-wgt # f4fwsvA22Ref
 # flux batch -n 1 -c32 --job-name=VSE2E_O3 train_vecparams_e2e.sh vpe2e-O3-wgt # f4fwsvFvVZkK
 
-# flux batch -n 1 -c32 --job-name=CLS_hb_e10000 train_devmap_cls.sh dmcls-amd-graphhb --epochs 10000 # f4g8xQ19mZ9H
-flux batch -n 1 -c32 --job-name=CLS_hb_e10000 --dependency=afterany:f4g8xQ19mZ9H train_devmap_cls.sh dmcls-amd-graphhb --epochs 10000 --train_from_checkpoint true # f4g2qv2biakw
+# flux batch -n 1 -c32 --job-name=CLS_hb_e10000 train_devmap_cls.sh dmcls-amd-graphhb --epochs 4000 # f4gHkvYfQ5V1
+# flux batch -n 1 -c32 --job-name=CLS_hb_e10000 train_devmap_cls.sh dmcls-graphhb --epochs 4000 # f4gHkveTwGTH
+# flux batch -n 1 -c32 --job-name=CLS_hb_e10000 --dependency=afterany:f4g8xQ19mZ9H train_devmap_cls.sh dmcls-amd-graphhb --epochs 10000 --train_from_checkpoint true # f4g2qv2biakw
+# flux batch -n 1 -c32 --job-name=CLS_hb_e10000 --dependency=afterany:f4g8xQ19mZ9H train_devmap_cls.sh dmcls-graphhb --epochs 10000 --train_from_checkpoint true # f4dZ79GvscCP
+
+flux batch -n 1 -c32 --job-name=VPCLS_e4000 train_vecparams_cls.sh vpcls-graphhb-O0 --epochs 4000 # f4gJF7PeBjuq
+flux batch -n 1 -c32 --job-name=VPCLS_e4000 train_vecparams_cls.sh vpcls-graphhb-O3 --epochs 4000 # f4gJF7VREwbm
