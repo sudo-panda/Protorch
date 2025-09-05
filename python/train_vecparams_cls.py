@@ -27,10 +27,9 @@ def main(cfg, debug, train):
     loss_fn = nn.BCELoss()
     acc_fn = lambda outputs, one_hot: (outputs.argmax(-1) == one_hot.argmax(-1)).float()
 
-    classes = {
-        "vf_classes": torch.tensor([1, 2, 4, 8, 16, 32, 64], device=cfg.device, dtype=torch.long),
-        "if_classes": torch.tensor([1, 2, 4, 8, 16], device=cfg.device, dtype=torch.long),
-    }
+    vf_classes = torch.tensor([1, 2, 4, 8, 16, 32, 64], device=cfg.device, dtype=torch.long)
+    if_classes = torch.tensor([1, 2, 4, 8, 16], device=cfg.device, dtype=torch.long)
+    classes = torch.cartesian_prod(vf_classes, if_classes)
 
     if train:
         # Setup
@@ -69,30 +68,23 @@ def main(cfg, debug, train):
 
                 assert isinstance(model, VecParamsClassifier)
                 batch_size = len(labels)
-                vf_logits, if_logits = model.forward(
+                logits = model.forward(
                     z_A.detach(), {k: v.detach() for k, v in z_V.items()},
                     {k: batch[k].batch for k in z_V.keys()}, batch_size
                 )
 
-                
-                labels_to_onehot_vf = (labels[:, 0].unsqueeze(1) == classes["vf_classes"]).float()
-                labels_to_onehot_if = (labels[:, 1].unsqueeze(1) == classes["if_classes"]).float()
+                targets = (labels[:, None, :] == classes[None, :, :]).all(dim=-1).float()
 
-                for file_name, vf_prob, if_prob, vf_labels, if_labels in zip(batch.file_path, vf_logits, if_logits, labels_to_onehot_vf, labels_to_onehot_if):
-                    vf_loss = loss_fn(vf_prob, vf_labels.to(torch.float32)).item()
-                    if_loss = loss_fn(if_prob, if_labels.to(torch.float32)).item()
-                    loss = vf_loss + if_loss
-
-                    vf_acc = acc_fn(vf_prob, vf_labels).item()
-                    if_acc = acc_fn(if_prob, if_labels).item()
-                    acc = (vf_acc + if_acc) / 2
+                for file_name, prob, target in zip(batch.file_path, logits, targets):
+                    loss = loss_fn(prob, target.to(torch.float32)).item()
+                    acc = acc_fn(prob, target).item()
 
                     new_row = pd.Series({
                         "file_name": Path(file_name).name, 
                         "loss": loss, 
                         "acc": acc,
-                        "pred": (classes['vf_classes'][vf_prob.argmax().item()].item(), classes['if_classes'][if_prob.argmax().item()].item()),
-                        "target": (classes['vf_classes'][vf_labels.argmax().item()].item(), classes['if_classes'][if_labels.argmax().item()].item())
+                        "pred": tuple(classes[prob.argmax().item()].tolist()),
+                        "target": tuple(classes[target.argmax().item()].tolist())
                     })
                     df = pd.concat([df, new_row.to_frame().T], ignore_index=True)
 

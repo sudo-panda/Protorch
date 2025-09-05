@@ -14,10 +14,7 @@ class VecParamsClassifier(nn.Module):
 
         self.pooled_dim = data_shapes["z_A"][-1] * (len(self.node_order) + 1)
         self.mlp_input_dim = self.pooled_dim
-        self.mlp = MLP(config["common"], self.mlp_input_dim)
-
-        self.vf_cls = MLP(config["vf_cls"], self.mlp.get_output_dim())
-        self.if_cls = MLP(config["if_cls"], self.mlp.get_output_dim())
+        self.mlp = MLP(config, self.mlp_input_dim)
 
     def forward(self, z_A, z_V, batch, batch_size):
         """
@@ -28,10 +25,8 @@ class VecParamsClassifier(nn.Module):
         outs = pool_enc_outs(z_A, z_V, batch, batch_size, self.node_order)
 
         mlp_inp = torch.cat(outs, dim=1)
-        hidden = self.mlp(mlp_inp)
-        vf_cls_logits = self.vf_cls(hidden)
-        if_cls_logits = self.if_cls(hidden)
-        return vf_cls_logits, if_cls_logits
+        logits = self.mlp(mlp_inp)
+        return logits
 
 
 class VecParamsE2EModel(nn.Module):

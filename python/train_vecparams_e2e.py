@@ -34,6 +34,7 @@ def load_vecparam_data(dataset, device, batch_size, cfg):
         return input_list
 
     if isinstance(csv_file, dict):
+        assert isinstance(data_path, dict), "Data path must be a dictionary when csv_file is a dictionary"
         if all(key in csv_file for key in ["train", "val", "test"]):
             train_df = pd.read_csv(csv_file["train"])
             val_df = pd.read_csv(csv_file["val"])
@@ -51,6 +52,7 @@ def load_vecparam_data(dataset, device, batch_size, cfg):
             val_data_path = data_path["train"]
             test_data_path = data_path["test"]
     else:
+        assert isinstance(data_path, Path), "Data path must be a Path when csv_file is not a dictionary"
         df = pd.read_csv(csv_file)
         train_val_df, test_df = train_test_split(df, test_size=0.2, random_state=cfg.seed)
         train_df, val_df = train_test_split(train_val_df, test_size=0.25, random_state=cfg.seed)
@@ -81,10 +83,9 @@ def main(cfg, debug, train):
     loss_fn = nn.BCELoss()
     acc_fn = lambda outputs, one_hot: (outputs.argmax(-1) == one_hot.argmax(-1)).float()
 
-    classes = {
-        "vf_classes": torch.tensor([1, 2, 4, 8, 16, 32, 64], device=cfg.device, dtype=torch.long),
-        "if_classes": torch.tensor([1, 2, 4, 8, 16], device=cfg.device, dtype=torch.long),
-    }
+    vf_classes = torch.tensor([1, 2, 4, 8, 16, 32, 64], device=cfg.device, dtype=torch.long)
+    if_classes = torch.tensor([1, 2, 4, 8, 16], device=cfg.device, dtype=torch.long)
+    classes = torch.cartesian_prod(vf_classes, if_classes)
 
     if train:
         # Setup
@@ -119,27 +120,20 @@ def main(cfg, debug, train):
                 batch, labels = data
 
                 assert isinstance(model, VecParamsE2EModel)
-                vf_logits, if_logits = model.forward(batch)
+                logits = model.forward(batch)
 
-                
-                labels_to_onehot_vf = (labels[:, 0].unsqueeze(1) == classes["vf_classes"]).float()
-                labels_to_onehot_if = (labels[:, 1].unsqueeze(1) == classes["if_classes"]).float()
+                targets = (labels[:, None, :] == classes[None, :, :]).all(dim=-1).float()
 
-                for file_name, vf_prob, if_prob, vf_labels, if_labels in zip(batch.file_path, vf_logits, if_logits, labels_to_onehot_vf, labels_to_onehot_if):
-                    vf_loss = loss_fn(vf_prob, vf_labels.to(torch.float32)).item()
-                    if_loss = loss_fn(if_prob, if_labels.to(torch.float32)).item()
-                    loss = vf_loss + if_loss
-
-                    vf_acc = acc_fn(vf_prob, vf_labels).item()
-                    if_acc = acc_fn(if_prob, if_labels).item()
-                    acc = (vf_acc + if_acc) / 2
+                for file_name, prob, target in zip(batch.file_path, logits, targets):
+                    loss = loss_fn(prob, target.to(torch.float32)).item()
+                    acc = acc_fn(prob, target).item()
 
                     new_row = pd.Series({
                         "file_name": Path(file_name).name, 
                         "loss": loss, 
                         "acc": acc,
-                        "pred": (classes['vf_classes'][vf_prob.argmax().item()].item(), classes['if_classes'][if_prob.argmax().item()].item()),
-                        "target": (classes['vf_classes'][vf_labels.argmax().item()].item(), classes['if_classes'][if_labels.argmax().item()].item())
+                        "pred": tuple(classes[prob.argmax().item()].tolist()),
+                        "target": tuple(classes[target.argmax().item()].tolist())
                     })
                     df = pd.concat([df, new_row.to_frame().T], ignore_index=True)
 
@@ -163,12 +157,10 @@ def single_step(model, batch, labels, loss_fn, acc_fn, classes):
     return loss, acc
 
 def get_best_vf_if_loss_acc(labels, loss_fn, acc_fn, classes, logits):
-    vf_logits, if_logits = logits
-    labels_to_onehot_vf = (labels[:, 0].unsqueeze(1) == classes["vf_classes"]).float()
-    labels_to_onehot_if = (labels[:, 1].unsqueeze(1) == classes["if_classes"]).float()
+    targets = (labels[:, None, :] == classes[None, :, :]).all(dim=-1).float()
 
-    loss = loss_fn(vf_logits, labels_to_onehot_vf).mean() + loss_fn(if_logits, labels_to_onehot_if).mean()
-    acc = acc_fn(vf_logits, labels_to_onehot_vf).mean() + acc_fn(if_logits, labels_to_onehot_if).mean()
+    loss = loss_fn(logits, targets).mean()
+    acc = acc_fn(logits, targets).mean()
     return loss, acc
 
 def get_weighted_loss_acc(labels, loss_fn, acc_fn, classes, logits):

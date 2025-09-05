@@ -3,29 +3,19 @@
         "arch": "graph-512-8-GAT-CLS",
         "save_file": "/p/vast1/LExperts/protorch/runs/20250815005524478034_graph-512-8-GAT-CLS/graph-512-8-GAT-CLS_Aug15_01-28-02.pt"
     },
-    "classifier": {
-        "common": [
-            { "Linear":     [64]   },
-            { "ReLU":       []     },
-            { "LayerNorm":  [64]   },
-            { "Dropout":    [0.1]  },
-            { "Linear":     [16]   },
-            { "ReLU":       []     },
-            { "LayerNorm":  [16]   }
-        ],
-        "if_cls": [
-            { "Linear":     [8]    },
-            { "ReLU":       []     },
-            { "LayerNorm":  [8]    },
-            { "Dropout":    [0.1]  },
-            { "Linear":     [5]    }
-        ],
-        "vf_cls": [
-            { "Linear":     [8]    },
-            { "ReLU":       []     },
-            { "LayerNorm":  [8]    },
-            { "Dropout":    [0.1]  },
-            { "Linear":     [7]    }
-        ]
-    }
+    "classifier": [
+        { "Linear":     [64]   },
+        { "ReLU":       []     },
+        { "LayerNorm":  [64]   },
+        { "Dropout":    [0.1]  },
+        { "Linear":     [128]   },
+        { "ReLU":       []     },
+        { "LayerNorm":  [128]   },
+        { "Dropout":    [0.1]  },
+        { "Linear":     [64]    },
+        { "ReLU":       []     },
+        { "LayerNorm":  [64]    },
+        { "Dropout":    [0.1]  },
+        { "Linear":     [35]    }
+    ]
 }
