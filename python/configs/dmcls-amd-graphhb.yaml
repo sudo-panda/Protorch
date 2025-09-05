@@ -13,6 +13,6 @@ train:
   scheduler:
     name: linear
 test:
-  dataset: devmap
+  dataset: devmap-amd
   batch_size: 16
-  checkpoint: 
+  checkpoint: /p/vast1/LExperts/protorch/runs/20250904190849915429_dmcls-graphhb-512-8
