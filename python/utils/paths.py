@@ -8,18 +8,18 @@ Protorch_path = Protorch_python_path.parent
 top_level_path = Protorch_path.parent
 models_path = Protorch_python_path / "models"
 configs_dir = Protorch_python_path / "configs"
-runs_dir = Path("/p/vast1/kundu1/protorch") / "runs"
+runs_dir = Path("/p/vast1/LExperts/protorch") / "runs"
 GraMI_path = models_path / "GraMI"
 Devmap_path = models_path / "Devmap"
 
 def get_data_paths(dataset: str) -> tuple[Path, Union[Path, dict[str, Path]], Union[Path, dict[str, Path]]]:
     path_map = {
         "devmap": {
-            "dataset": "/p/vast1/kundu1/protorch/devmap", 
+            "dataset": "/p/vast1/LExperts/protorch/devmap", 
             "data": "heterodatas"
         },
         "devmap-amd": {
-            "dataset": "/p/vast1/kundu1/protorch/devmap", 
+            "dataset": "/p/vast1/LExperts/protorch/devmap", 
             "data": "heterodatas-amd"
         },
         "hecbench": {
@@ -27,7 +27,7 @@ def get_data_paths(dataset: str) -> tuple[Path, Union[Path, dict[str, Path]], Un
             "data": "heterodatas"
         },
         "vecparams-x86_64-O3-best_VF_IF": {
-            "dataset": "/p/vast1/kundu1/protorch/NeuroVectorizer", 
+            "dataset": "/p/vast1/LExperts/protorch/NeuroVectorizer", 
             "data": {
                 "train": "heterodatas_toss_4_x86_64_ib_cray_O3/training_data",
                 "test": "heterodatas_toss_4_x86_64_ib_cray_O3/tests"
@@ -35,7 +35,7 @@ def get_data_paths(dataset: str) -> tuple[Path, Union[Path, dict[str, Path]], Un
             "csv": "best_VF_IF.csv"
         },
         "vecparams-x86_64-O0-best_VF_IF": {
-            "dataset": "/p/vast1/kundu1/protorch/NeuroVectorizer", 
+            "dataset": "/p/vast1/LExperts/protorch/NeuroVectorizer", 
             "data": {
                 "train": "heterodatas_toss_4_x86_64_ib_cray_O0/training_data",
                 "test": "heterodatas_toss_4_x86_64_ib_cray_O0/tests"
@@ -43,7 +43,7 @@ def get_data_paths(dataset: str) -> tuple[Path, Union[Path, dict[str, Path]], Un
             "csv": "best_VF_IF.csv"
         },
         "vecparams-x86_64-O3-wgted_VF_IF": {
-            "dataset": "/p/vast1/kundu1/protorch/NeuroVectorizer", 
+            "dataset": "/p/vast1/LExperts/protorch/NeuroVectorizer", 
             "data": {
                 "train": "heterodatas_toss_4_x86_64_ib_cray_O3/training_data",
                 "test": "heterodatas_toss_4_x86_64_ib_cray_O3/tests"
@@ -51,7 +51,7 @@ def get_data_paths(dataset: str) -> tuple[Path, Union[Path, dict[str, Path]], Un
             "csv": "wgted_VF_IF.csv"
         },
         "vecparams-x86_64-O0-wgted_VF_IF": {
-            "dataset": "/p/vast1/kundu1/protorch/NeuroVectorizer", 
+            "dataset": "/p/vast1/LExperts/protorch/NeuroVectorizer", 
             "data": {
                 "train": "heterodatas_toss_4_x86_64_ib_cray_O0/training_data",
                 "test": "heterodatas_toss_4_x86_64_ib_cray_O0/tests"

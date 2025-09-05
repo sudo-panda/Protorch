@@ -15,4 +15,4 @@ train:
 test:
   dataset: vecparams-x86_64-O3-best_VF_IF
   batch_size: 16
-  checkpoint: /p/vast1/kundu1/protorch/runs/20250901014602345389_vpe2e-512-8-GAT-CLS/vpe2e-512-8-GAT-CLS_0000176_0.84.pt
+  checkpoint: /p/vast1/LExperts/protorch/runs/20250901014602345389_vpe2e-512-8-GAT-CLS/vpe2e-512-8-GAT-CLS_0000176_0.84.pt

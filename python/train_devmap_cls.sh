@@ -4,8 +4,8 @@
 #flux: -g 1
 #flux: -t 12h
 #flux: --job-name=devmap_cls_train
-#flux: --output=/p/vast1/kundu1/protorch/logs/flux-{{id.dec}}-out.log
-#flux: --error=/p/vast1/kundu1/protorch/logs/flux-{{id.dec}}-{{id}}.log
+#flux: --output=/p/vast1/LExperts/protorch/logs/flux-{{id.dec}}-out.log
+#flux: --error=/p/vast1/LExperts/protorch/logs/flux-{{id.dec}}-{{id}}.log
 set -eo pipefail
 
 echo "START TIME: $(date)"

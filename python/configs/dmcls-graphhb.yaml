@@ -15,4 +15,4 @@ train:
 test:
   dataset: devmap
   batch_size: 16
-  checkpoint: /p/vast1/kundu1/protorch/runs/20250822134526553068_dmcls-graphhb-512-8/dmcls-graphhb-512-8_0005781_0.83.pt
+  checkpoint: /p/vast1/LExperts/protorch/runs/20250822134526553068_dmcls-graphhb-512-8/dmcls-graphhb-512-8_0005781_0.83.pt

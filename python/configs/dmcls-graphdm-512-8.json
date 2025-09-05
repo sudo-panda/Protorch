@@ -1,7 +1,7 @@
 {
     "GraMI": {
         "arch": "graph-512-8-GAT-CLS",
-        "save_file": "/p/vast1/kundu1/protorch/runs/20250819012855838390_graph-512-8-GAT-CLS/graph-512-8-GAT-CLS_0000642_0.99_0.86.pt"
+        "save_file": "/p/vast1/LExperts/protorch/runs/20250819012855838390_graph-512-8-GAT-CLS/graph-512-8-GAT-CLS_0000642_0.99_0.86.pt"
     },
     "classifier": [
         { "Linear":     [64]   },

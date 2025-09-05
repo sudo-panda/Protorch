@@ -82,6 +82,7 @@ def load_grami_enc(model_config: dict,
     grami = load_pretrained_grami_model(GraMI_config["arch"], data_shapes, device,
                                         writer, load_run_dir=GraMI_run_dir,
                                         save_file=GraMI_save_file)
+    grami.eval()
     grami_enc = grami.encoder
 
     output_shape = grami_enc.get_output_shape(data_shapes)
@@ -97,15 +98,16 @@ def load_grami_enc(model_config: dict,
     grami_enc.to(device)
 
     def encoder(batch):
-        _, _, n_A, n_V = grami_enc(batch)
-        if grami_enc.variational:
-            z_A = n_A[0]
-            z_V = n_V[0]
-        else:
-            z_A = n_A
-            z_V = n_V
+        with torch.no_grad():
+            _, _, n_A, n_V = grami_enc(batch)
+            if grami_enc.variational:
+                z_A = n_A[0]
+                z_V = n_V[0]
+            else:
+                z_A = n_A
+                z_V = n_V
 
-        return z_A, z_V
+            return z_A, z_V
     
     return data_shapes, encoder
 
