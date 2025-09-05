@@ -125,10 +125,15 @@ def load_testing_modules(
     if checkpoint is None:
         prev_run_dir = find_latest_run_dir(model_name)
     elif isinstance(checkpoint, str):
-        save_file = Path(checkpoint).absolute()
-        assert save_file.exists() and save_file.is_file(), f"Checkpoint file does not exist or is not a file:\n\t{save_file}\n  Please give the right checkpoint file name in train_from_checkpoint"
-        prev_run_dir = save_file.parent
-        assert prev_run_dir.exists() and prev_run_dir.is_dir(), f"Run directory does not exist:\n\t{prev_run_dir}\n\tPlease give the right checkpoint directory name in train_from_checkpoint"
+        path = Path(checkpoint).absolute()
+        if path.is_dir():
+            prev_run_dir = path
+        elif path.is_file():
+            save_file = path
+            assert save_file.exists() and save_file.is_file(), f"Checkpoint file does not exist or is not a file:\n\t{save_file}\n  Please give the right checkpoint file name in train_from_checkpoint"
+            prev_run_dir = save_file.parent
+        
+        assert prev_run_dir is not None and prev_run_dir.exists() and prev_run_dir.is_dir(), f"Run directory does not exist:\n\t{prev_run_dir}\n\tPlease give the right checkpoint directory name in train_from_checkpoint"
 
     assert (prev_run_dir is not None), f"The prev_run_dir var not set. Please provide a checkpoint or ensure that a previous run exists for model {model_name}."
     # Found existing run directory
@@ -139,7 +144,10 @@ def load_testing_modules(
     if save_file is None:
         save_file = find_latest_file(prev_run_dir, f"{model_name}_*.pt")
         assert save_file is not None and save_file.exists(), f"Weight file not found in prev run dir:\n\t{prev_run_dir}"
-    
+        print(f"Found weights file: {save_file.name}")
+    else:
+        print(f"Using provided weights file: {save_file.name}")
+
     csv_file_name = save_file.with_suffix(".csv")
     print(f"\n\tWriting predictions to {csv_file_name}\n")
 
